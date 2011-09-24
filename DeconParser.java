@@ -6,9 +6,16 @@ import java.util.*;
 // TODO: get rid of case-significance for types vs fields, etc
 // TODO: constants
 
+// Syntax error during .con file parsing
 class ParseError extends Exception {
   final String problem;
   ParseError(String p) { problem = p; }
+}
+
+// Syntax error during deconstruction phase
+class DeconError extends Exception {
+  final String problem;
+  DeconError(String p) { problem = p; }
 }
 
 
@@ -266,7 +273,7 @@ class DeconParser {
     }
   }
 
-  private void debug(String s) {
+  static void debug(String s) {
     System.err.println(s);
   }
 
@@ -413,8 +420,16 @@ class DeconParser {
     if (a < args.length)
       usage();
 
-    Context context = new Context(new DataInputStream(in), out);
-    main.deconstruct(context);
+    Context context = new Context(in, out);
+    try {
+      main.deconstruct(context);
+    } catch (DeconError e) {
+      // TODO print some more context
+      System.err.println("DECONSTRUCTION ERROR @ " + context.bitten + ": " +
+                         e.problem);
+      e.printStackTrace(System.err);
+      System.exit(-2);
+    }
   }
 
   static void usage() {
@@ -425,17 +440,31 @@ class DeconParser {
 
 
 class Context {
-  DataInputStream in;
+  private final InputStream in;
   PrintStream out;
-  Context(DataInputStream in, PrintStream out) {
+
+  Context(InputStream in, PrintStream out) {
     this.in = in;
     this.out = out;
   }
+  
+  int bitten = 0;
+
+  int bite() throws DeconError {
+    ++bitten;
+    try {
+      return in.read();
+    } catch (IOException e) {
+      throw new DeconError("Input error");
+    }
+  }
+
+  Integer value = 0;
 }
 
 
 abstract class Type {
-  abstract public void deconstruct(Context context);
+  abstract public void deconstruct(Context context) throws DeconError;
 }
 
 
@@ -446,8 +475,15 @@ class ReferenceType extends Type {
     this.name = name;
   }
 
-  public void deconstruct(Context context) {
-    DeconParser.types.get(name).deconstruct(context);
+  public String toString() {
+    return name;
+  }
+
+  public void deconstruct(Context context) throws DeconError {
+    Type t = DeconParser.types.get(name);
+    if (t == null)
+      throw new DeconError("Undefined type " + name);
+    t.deconstruct(context);
   }
 }
 
@@ -461,16 +497,23 @@ class ArrayType extends Type {
     this.element = element;
   }
 
-  public void deconstruct(Context context) {
-    if (length != null) {
-      for (int i = 0; i < length; ++i)
-        element.deconstruct(context);
-    } else {
-      for (;;) {
-        element.deconstruct(context);
-        // don't know how to stop!
-      }
+  public String toString() {
+    return "" + element + "[" + 
+      (until != null ? "until " + until : "") + 
+      (length != null ? length : "") + 
+      "]";
+  }
+
+  public void deconstruct(Context context) throws DeconError {
+    context.out.println("[");
+    context.out.println(this);
+    context.value = null;
+    for (int i = 0; length == null || i < length; ++i) {
+      if (until != null && context.value == until) break;
+      if (i > 0) context.out.print(", ");
+      element.deconstruct(context);
     }
+    context.out.println("]");
   }
 }
 
@@ -483,10 +526,23 @@ class NumericType extends Type {
 
   NumericType() {}
 
-  public void deconstruct(Context context) {
-    int value = 0;
+  public void deconstruct(Context context) throws DeconError {
+    context.value = 0;
     for (int i = 0; i < size; i += 8) {
-      
+      int v = context.bite();
+      if (bigendian) {
+        if (signed && i == 0) v = (byte)v;
+        context.value <<= 8;
+        context.value += v;
+      } else {
+        if (signed && i == size - 8) v = (byte)v;
+        context.value |= v << i;
+      }
+    }
+    if (base == 256) {
+      context.out.printf("%c", context.value);
+    } else {
+      context.out.print(Integer.toString(context.value, base));
     }
   }
 }
@@ -505,16 +561,16 @@ class StructType extends Type {
   
   List<Field> fields = new LinkedList<Field>();
 
-  StructType() {}
-
   void addField(String name, Type type) {
     fields.add(new Field(name, type));
   }
 
-  public void deconstruct(Context context) {
+  public void deconstruct(Context context) throws DeconError {
+    context.out.println("{");
     for (Field field : fields) {
       field.type.deconstruct(context);
     }
+    context.out.println("}");
   }
 }
 
