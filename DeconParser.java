@@ -388,7 +388,6 @@ class DeconParser {
     runTests();
 
     Type main = null;
-    String mainname = null;
     int a = 0;
     for (; a < args.length; ++a) {
       String arg = args[a];
@@ -396,7 +395,6 @@ class DeconParser {
         parseFile(arg);
       } else {
         // Must be a type
-        mainname = arg;
         main = types.get(arg);
         if (main == null) {
           // Don't know it - look for a .con file
@@ -431,13 +429,12 @@ class DeconParser {
       usage();
 
     for (String k : types.keySet())
-      System.out.print(k + ": " + types.get(k) + "\n");
+      System.err.print(k + ": " + types.get(k) + "\n");
 
-    System.out.println(main);
+    System.err.println(main);
 
     Context context = new Context(in, out);
     try {
-      context.out.print("var " + mainname + " = ");
       main.deconstruct(context);
     } catch (DeconError e) {
       // TODO print some more context
@@ -633,7 +630,15 @@ class NumericType extends Type {
       }
     }
     if (base == 256) {
-      context.out.printf("%c", context.value);
+      if (context.value == '\\') {
+        context.out.print("\\\\");
+      } else if (context.value == '"') {
+        context.out.print("\\\"");
+      } else if (context.value < 32 || context.value > 127) {
+        context.out.printf("\\u%04x", context.value);
+      } else {
+        context.out.printf("%c", context.value);
+      }
     } else {
       context.out.print(Integer.toString(context.value, base));
     }
