@@ -2,10 +2,9 @@ import "standard.con"
 
 Look = {
   offsets UInt16[0x200]
-  descriptions CString[0x200]
+  descriptions CString[before 0x1a]
+  eof Byte
 }
-
-Char = UInt8
 
 # TERMINATOR = 0 Char
  

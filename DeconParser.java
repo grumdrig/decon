@@ -5,6 +5,8 @@ import java.util.*;
 
 // TODO: get rid of case-significance for types vs fields, etc
 // TODO: constants
+// TODO: probably want a string type
+// TODO: use a context for dereferencing
 
 // Syntax error during .con file parsing
 class ParseError extends Exception {
@@ -242,7 +244,8 @@ class DeconParser {
 
 
   public static HashMap<String,Type> types = new HashMap<String,Type>();
-  { types.put("Int", new NumericType()); } // One predefined type
+  // One predefined type
+  { types.put("Int", new NumericType(true, 32, false, 10)); } 
 
   private void takeNewlines() throws ParseError {
     take(T_NEWLINE); 
@@ -296,9 +299,9 @@ class DeconParser {
 
     while (tryToTake(".")) {
       result = dereferenceType(result);
-      NumericType nt = (NumericType) result;
-      if (nt == null) 
+      if (!(result instanceof NumericType))
         throw new ParseError("Numeric type expected");
+      NumericType nt = new NumericType((NumericType) result);
       String modifier = take(T_LCID);
       if (modifier.equals("signed")) {
         nt.signed = true;
@@ -317,6 +320,7 @@ class DeconParser {
       } else {
         throw new ParseError("Unknown type modifier");
       }
+      result = nt;
     }
         
     while (tryToTake("[")) {
@@ -324,8 +328,10 @@ class DeconParser {
       result = at;
       if (tryToTake("until")) {
         at.until = parseNumeric();
+      } else if (tryToTake("before")) {
+        at.before = parseNumeric();
       } else {
-        at.length = parseNumeric();
+        at.length = tryToParseNumeric();
       }
       take("]");
     }
@@ -333,7 +339,7 @@ class DeconParser {
   }
                              
 
-  Type dereferenceType(Type t) throws ParseError {
+  static Type dereferenceType(Type t) throws ParseError {
     for (; t instanceof ReferenceType;) {
       ReferenceType rt = (ReferenceType) t;
       if (rt == null) break;
@@ -382,6 +388,7 @@ class DeconParser {
     runTests();
 
     Type main = null;
+    String mainname = null;
     int a = 0;
     for (; a < args.length; ++a) {
       String arg = args[a];
@@ -389,6 +396,7 @@ class DeconParser {
         parseFile(arg);
       } else {
         // Must be a type
+        mainname = arg;
         main = types.get(arg);
         if (main == null) {
           // Don't know it - look for a .con file
@@ -400,6 +408,8 @@ class DeconParser {
           System.err.println("Construction not found: " + arg);
           System.exit(404);
         }
+        ++a;
+        break;
       }
     }
     InputStream in = System.in;
@@ -420,8 +430,14 @@ class DeconParser {
     if (a < args.length)
       usage();
 
+    for (String k : types.keySet())
+      System.out.print(k + ": " + types.get(k) + "\n");
+
+    System.out.println(main);
+
     Context context = new Context(in, out);
     try {
+      context.out.print("var " + mainname + " = ");
       main.deconstruct(context);
     } catch (DeconError e) {
       // TODO print some more context
@@ -439,6 +455,7 @@ class DeconParser {
 }
 
 
+
 class Context {
   private final InputStream in;
   PrintStream out;
@@ -449,13 +466,47 @@ class Context {
   }
   
   int bitten = 0;
+  int bit = 0;
+  Integer buffer = null;  // very small buffer!
 
   int bite() throws DeconError {
-    ++bitten;
+    if (buffer != null) {
+      int result = buffer;
+      buffer = null;
+      ++bitten;
+      return result;
+    }
+
     try {
-      return in.read();
+      bit = in.read();
     } catch (IOException e) {
       throw new DeconError("Input error");
+    }
+    if (bit == -1)
+      throw new DeconError("EOF");
+    ++bitten;
+    return bit;
+  }
+
+
+  int peek() throws DeconError {
+    if (eof()) return -1;  // fills the buffer
+    return buffer;
+  }
+    
+
+  boolean eof() throws DeconError {
+    if (buffer != null) return false;
+    try {
+      buffer = in.read();
+    } catch (IOException e) {
+      throw new DeconError("Input error");
+    }
+    if (buffer == -1) {
+      buffer = null;
+      return true;
+    } else {
+      return false;
     }
   }
 
@@ -463,9 +514,12 @@ class Context {
 }
 
 
+
 abstract class Type {
+  Type dereference() { return this; }
   abstract public void deconstruct(Context context) throws DeconError;
 }
+
 
 
 class ReferenceType extends Type {
@@ -475,8 +529,18 @@ class ReferenceType extends Type {
     this.name = name;
   }
 
+  Type dereference() {
+    Type result = DeconParser.types.get(name);
+    if (result != null) result = result.dereference();
+    return result;
+  }
+
   public String toString() {
-    return name;
+    Type t = dereference();
+    if (t == null)
+      return name + ":???";
+    else
+      return t.toString();
   }
 
   public void deconstruct(Context context) throws DeconError {
@@ -488,10 +552,12 @@ class ReferenceType extends Type {
 }
 
 
+
 class ArrayType extends Type {
   Type element;
-  Integer until;
-  Integer length;
+  Integer length = null;
+  Integer until = null;
+  Integer before = null;
   
   ArrayType(Type element) {
     this.element = element;
@@ -505,26 +571,53 @@ class ArrayType extends Type {
   }
 
   public void deconstruct(Context context) throws DeconError {
-    context.out.println("[");
-    context.out.println(this);
     context.value = null;
-    for (int i = 0; length == null || i < length; ++i) {
+    Type e = element.dereference();
+    boolean isstr = 
+      (e instanceof NumericType) &&
+      ((NumericType)e).base == 256;
+    context.out.print(isstr ? "\"" : "[");
+    for (int i = 0; ; ++i) {
+      if (length != null && i >= length) break;
       if (until != null && context.value == until) break;
-      if (i > 0) context.out.print(", ");
-      element.deconstruct(context);
+      if (before != null && context.peek() == before) break;
+      if (length == null && until == null && before == null && context.eof()) 
+        break;
+      if (!isstr && i > 0) context.out.print(", ");
+      e.deconstruct(context);
     }
-    context.out.println("]");
+    context.out.print(isstr ? "\"" : "]");
   }
 }
 
 
 class NumericType extends Type {
-  boolean signed = true;
-  boolean bigendian = false;
-  int size = 32;
-  int base = 10;
+  boolean signed;
+  int size;
+  boolean bigendian;
+  int base;
 
-  NumericType() {}
+  NumericType(boolean signed, int size, boolean bigendian, int base) {
+    this.signed = signed;
+    this.size = size;
+    this.bigendian = bigendian;
+    this.base = base;
+  }
+
+  NumericType(NumericType that) {
+    this(that.signed, that.size, that.bigendian, that.base);
+    this.signed = that.signed;
+    this.size = that.size;
+    this.bigendian = that.bigendian;
+    this.base = that.base;
+  }
+
+  public String toString() {
+    String result = (signed ? "u" : "i") + size;
+    if (bigendian) result = result.toUpperCase();
+    if (base != 10) ;result += "%" + base;
+    return result;
+  }
 
   public void deconstruct(Context context) throws DeconError {
     context.value = 0;
@@ -553,9 +646,14 @@ class StructType extends Type {
   class Field {
     String name;
     Type type;
+
     Field(String name, Type type) {
       this.name = name;
       this.type = type;
+    }
+
+    public String toString() {
+      return name + " " + type;
     }
   }
   
@@ -565,9 +663,20 @@ class StructType extends Type {
     fields.add(new Field(name, type));
   }
 
+  public String toString() {
+    String result = "{\n";
+    for (Field field : fields) result += field + "\n";
+    return result + "}";
+  }
+
+
   public void deconstruct(Context context) throws DeconError {
     context.out.println("{");
+    int i = 0;
     for (Field field : fields) {
+      if (i++ > 0)
+        context.out.println(",");
+      context.out.print("\"" + field.name + "\":");
       field.type.deconstruct(context);
     }
     context.out.println("}");
