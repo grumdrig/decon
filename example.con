@@ -1,0 +1,12 @@
+import "standard.con"
+
+Look = {
+  offsets Uint16[0x200]
+  descriptions CString[0x200]
+}
+
+Char = Uint8
+
+# TERMINATOR = 0 Char
+ 
+CString = Char[until 0]  # TERMINATOR]

@@ -1,9 +1,10 @@
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 import java.io.*;
-import java.util.Vector;
-import java.util.Iterator;
+import java.util.*;
 
+// TODO: get rid of case-significance for types vs fields, etc
+// TODO: constants
 
 class ParseError extends Exception {
   final String problem;
@@ -28,7 +29,6 @@ class DeconParser {
        "(?:0[xX]"+H+"?(?:\\.)"+H+")" +                 // 0xF.F
      ")[pP][+-]?"+D+"))" +                             // ... p+F
      "[fFdD]?))");                                     // suffix
-  
 
   private static final Pattern tokenPattern = Pattern.compile
     ("\\G"                       //    beginning at last match:
@@ -38,6 +38,7 @@ class DeconParser {
      +  "|\"(.*)\""              // 4.   quoted
      +  "|([a-z][-\\w]*)"        // 5.   lcid
      +  "|([A-Z][-\\w]*)"        // 6.   ucid
+     +  "|0[xX](\\p{XDigit}+)"   // 7.   hex constant
      +  "|("+fpRegex+")"         // 8.   numerical constant
      +  "|(\\p{Punct})"          // 9.   punctuation
      +  "|(\\z)"                 // 10.  EOF
@@ -50,6 +51,7 @@ class DeconParser {
   private static final int T_QUOTED     = 4;
   private static final int T_LCID       = 5;
   private static final int T_UCID       = 6;
+  private static final int T_HEXNUMBER  = 7;
   private static final int T_NUMBER     = 8;
   private static final int T_PUNCTUATION= 9;
   private static final int T_EOF        = 10;
@@ -64,15 +66,17 @@ class DeconParser {
       if (m.group(expected[i]) == null) {
         for (int g = 0; g <= m.groupCount(); ++g)
           System.err.println("" + g + ": '" + m.group(g) + "'");
+        System.err.println("Matching " + input + " to token type " + 
+                           expected[i].toString());
         System.err.println("Unexpected token '" + m.group() + "'");
         System.exit(-3);
       }
     }
   }
 
-  public static void testParseNumeric(String input, double expected) {
+  public static void testParseNumeric(String input, int expected) {
     DeconParser p = null;
-    Double d = null;
+    Integer d = null;
     try {
       p = new DeconParser(input);
       d = p.parseNumeric();
@@ -97,12 +101,15 @@ class DeconParser {
     testMatch("UcId", new Integer[] { T_UCID });
     testMatch("6", new Integer[] { T_NUMBER });
     testMatch(".", new Integer[] { T_PUNCTUATION });
+    testMatch("0x0", new Integer[] { T_HEXNUMBER });
+    testMatch("0XABC", new Integer[] { T_HEXNUMBER });
 
     testParseNumeric("6", 6);
-    testParseNumeric("PI", Math.PI);
-    testParseNumeric("2*PI", 2 * Math.PI);
-    testParseNumeric("PI*2", 2 * Math.PI);
-    testParseNumeric("-2*PI/26", -Math.PI/13);
+    testParseNumeric("3", 3);
+    testParseNumeric("2*3", 2*3);
+    testParseNumeric("3*2", 3*2);
+    testParseNumeric("-2*3/26", -2*3/26);
+    testParseNumeric("0x20", 32);
     
     System.err.println("PASS");
   }
@@ -221,78 +228,85 @@ class DeconParser {
       System.err.println("SYNTAX ERROR [" + filename + ":" + 
                      lineno + "]: " + 
                      e.problem + " at '" + p.tokenMatcher.group(T_TOKEN) + "'");
+      e.printStackTrace(System.err);
       System.exit(-1);
     }
   }
 
 
-  static HashMap<String,Type> types = new HashMap<String,Type>();
+  public static HashMap<String,Type> types = new HashMap<String,Type>();
   { types.put("Int", new NumericType()); } // One predefined type
 
   private void takeNewlines() throws ParseError {
-    for (take(T_NEWLINE); is(T_NEWLINE); take(T_NEWLINE)) { }
+    take(T_NEWLINE); 
+    maybeTakeNewlines();
   }
 
+  private void maybeTakeNewlines() throws ParseError {
+    while (is(T_NEWLINE)) advance();
+  }
 
   private void go() throws ParseError {
-    while (is(T_NEWLINE)) 
-      advance();
+    maybeTakeNewlines();
     while (!is(T_EOF)) {
+      
       if (tryToTake("import")) {
         // import
         String filename = take(T_QUOTED);
         parseFile(filename);
-        takeNewlines();
-        
       } else {
         // Type def
         String name = take(T_UCID);
-        if (topType == null) topType = name;
         take("=");
         Type type = parseType();
-
-        if (!is(T_EOF)) takeNewlines();
+        types.put(name, type);
       }
+      
+      if (!is(T_EOF)) takeNewlines();
     }
-    return topType;
+  }
+
+  private void debug(String s) {
+    System.err.println(s);
   }
 
   private Type parseType() throws ParseError {
     Type result = null;
     if (tryToTake("{")) {
       // Struct
-      Struct s = new Struct();
-      for (;;) {
-        if (tryToTake("}"))
-          break;
+      StructType s = new StructType();
+      for (maybeTakeNewlines(); !tryToTake("}"); ) {
         String fieldname = take(T_LCID);
         Type fieldtype = parseType();
         s.addField(fieldname, fieldtype);
+        takeNewlines();
       }
       result = s;
     } else {
       // Reference named type
-      result = new TypeReference(take(T_UCID));
+      result = new ReferenceType(take(T_UCID));
     }
 
     while (tryToTake(".")) {
-      result = dereference(result);
+      result = dereferenceType(result);
       NumericType nt = (NumericType) result;
       if (nt == null) 
         throw new ParseError("Numeric type expected");
       String modifier = take(T_LCID);
-      if (modifier == "signed") {
+      if (modifier.equals("signed")) {
         nt.signed = true;
-      } else if (modifier == "unsigned") {
+      } else if (modifier.equals("unsigned")) {
         nt.signed = false;
-      } else if (modifier == "size") {
-        nt.size = parseInteger();
-      } else if (modifier == "base") {
-        nt.base = parseInteger();
-      } else if (modifier == "ascii") {
-        nt.display = NumericType.ASCII;
-      } else if (modifier == "integer") {
-        nt.display = NumericType.INTEGER;
+      } else if (modifier.equals("size")) {
+        nt.size = parseNumeric();
+      } else if (modifier.equals("bigendian")) {
+        nt.bigendian = true;
+      } else if (modifier.equals("littleendian")) {
+        nt.bigendian = false;
+      } else if (modifier.equals("base")) {
+        nt.base = parseNumeric();
+      } else if (modifier.equals("ascii")) {
+        nt.base = 256;
       } else {
         throw new ParseError("Unknown type modifier");
       }
@@ -302,21 +316,22 @@ class DeconParser {
       ArrayType at = new ArrayType(result);
       result = at;
       if (tryToTake("until")) {
-        at.until = parseInteger();
+        at.until = parseNumeric();
       } else {
-        at.length = parseInteger();
+        at.length = parseNumeric();
       }
       take("]");
     }
+    return result;
   }
                              
 
-  Type deferenceType(Type t) throws ParseError {
-    for (;;) {
+  Type dereferenceType(Type t) throws ParseError {
+    for (; t instanceof ReferenceType;) {
       ReferenceType rt = (ReferenceType) t;
       if (rt == null) break;
       t = types.get(rt.name);
-      if (t == null)
+      if (t == null) 
         throw new ParseError("Unknown type " + rt.name);
     }
     return t;
@@ -330,9 +345,11 @@ class DeconParser {
   }
 
   private Integer tryToParseNumeric() throws ParseError {
-    Double result = null;
+    Integer result = null;
     if (is(T_NUMBER)) {
-      result = Integer.parseInteger(take());
+      result = Integer.parseInt(take());
+    } else if (is(T_HEXNUMBER)) {
+      result = Integer.parseInt(take(T_HEXNUMBER), 16);
     } else if (tryToTake("(")) {
       result = parseNumeric();
       take(")");
@@ -360,11 +377,12 @@ class DeconParser {
     Type main = null;
     int a = 0;
     for (; a < args.length; ++a) {
+      String arg = args[a];
       if (arg.endsWith(".con")) {
         parseFile(arg);
       } else {
         // Must be a type
-        Type main = types.get(arg);
+        main = types.get(arg);
         if (main == null) {
           // Don't know it - look for a .con file
           if ((new File(arg + ".con")).exists())
@@ -377,20 +395,126 @@ class DeconParser {
         }
       }
     }
-    InputStream infile = System.in;
-    PrintStream outfile = System.out;
-    if (a < args.length) 
-      infile = new BufferedInputStream(new FileInputStream(args[a++]));
-    if (a < args.length) 
-      outfile = new BufferedOutputStream(new FileOutputStream(args[a++]));
+    InputStream in = System.in;
+    PrintStream out = System.out;
+    if (a < args.length) {
+      try {
+        in = new BufferedInputStream(new FileInputStream(args[a++]));
+      } catch(FileNotFoundException e) {
+        System.err.printf("Input file not found: " + args[a-1]);
+        System.exit(404);
+      }
+    }
+    /*
+    if (a < args.length) {
+      out = new PrintWriter(new FileWriter(args[a++]));
+    }
+    */
     if (a < args.length)
       usage();
 
-    main.deconstruct(new DataInputStream(infile), outfile);
+    Context context = new Context(new DataInputStream(in), out);
+    main.deconstruct(context);
+  }
+
+  static void usage() {
+    System.err.println("Usage: java DeconParser [DEF.con...] MAIN [IN [OUT]]");
+    System.exit(302);
+  }
+}
+
+
+class Context {
+  DataInputStream in;
+  PrintStream out;
+  Context(DataInputStream in, PrintStream out) {
+    this.in = in;
+    this.out = out;
   }
 }
 
 
 abstract class Type {
-  abstract public void deconstruct(DataInputStream input, PrintStream output);
+  abstract public void deconstruct(Context context);
 }
+
+
+class ReferenceType extends Type {
+  String name;
+  
+  ReferenceType(String name) {
+    this.name = name;
+  }
+
+  public void deconstruct(Context context) {
+    DeconParser.types.get(name).deconstruct(context);
+  }
+}
+
+
+class ArrayType extends Type {
+  Type element;
+  Integer until;
+  Integer length;
+  
+  ArrayType(Type element) {
+    this.element = element;
+  }
+
+  public void deconstruct(Context context) {
+    if (length != null) {
+      for (int i = 0; i < length; ++i)
+        element.deconstruct(context);
+    } else {
+      for (;;) {
+        element.deconstruct(context);
+        // don't know how to stop!
+      }
+    }
+  }
+}
+
+
+class NumericType extends Type {
+  boolean signed = true;
+  boolean bigendian = false;
+  int size = 32;
+  int base = 10;
+
+  NumericType() {}
+
+  public void deconstruct(Context context) {
+    int value = 0;
+    for (int i = 0; i < size; i += 8) {
+      
+    }
+  }
+}
+
+
+class StructType extends Type {
+
+  class Field {
+    String name;
+    Type type;
+    Field(String name, Type type) {
+      this.name = name;
+      this.type = type;
+    }
+  }
+  
+  List<Field> fields = new LinkedList<Field>();
+
+  StructType() {}
+
+  void addField(String name, Type type) {
+    fields.add(new Field(name, type));
+  }
+
+  public void deconstruct(Context context) {
+    for (Field field : fields) {
+      field.type.deconstruct(context);
+    }
+  }
+}
+
