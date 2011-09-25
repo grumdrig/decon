@@ -1,11 +1,18 @@
 import "standard.con"
 
-Look = {
+Look: {
   offsets UInt16[0x200]
   descriptions CString[before 0x1a]
   eof Byte
 }
 
-# TERMINATOR = 0 Char
+# This version produces finalized parse (or would if it worked)
+Look2: {
+  _offset UInt16[0x200]
+  description[I] CString.at(_offset[I])[before 0x1a]
+  _ Byte[]
+}
+
+TERMINATOR = 0 Char
  
-CString = Char[until 0]  # TERMINATOR]
+CString: Char[until TERMINATOR]

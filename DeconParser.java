@@ -45,7 +45,7 @@ class DeconParser {
      +"("                        // 2. any token: (
      +  "([\r\n])"               // 3.   \n
      +  "|\"(.*)\""              // 4.   quoted
-     +  "|([a-z][-\\w]*)"        // 5.   lcid
+     +  "|([_a-z][-\\w]*)"       // 5.   lcid
      +  "|([A-Z][-\\w]*)"        // 6.   ucid
      +  "|0[xX](\\p{XDigit}+)"   // 7.   hex constant
      +  "|("+fpRegex+")"         // 8.   numerical constant
@@ -298,6 +298,9 @@ class DeconParser {
     }
 
     while (tryToTake(".")) {
+      // TODO: hold the reference so that the underlying type can be changed to
+      // affect all descendants (endianness is what I'm thinking about here,
+      // but that also allows forward references)
       result = dereferenceType(result);
       if (!(result instanceof NumericType))
         throw new ParseError("Numeric type expected");
@@ -451,21 +454,62 @@ class DeconParser {
   }
 }
 
+/*
+class SwitchableOutputStream extends OutputStream {
+  boolean on = true;
+  final OutputStream sink;
+  SwitchableOutputStream(OutputStream sink) {  this.sink = sink;  }
+  public void close() {  sink.close();  }
+  public void flush() {  sink.flush();  }
+  public void write(byte[] b) {  if (on) sink.write(b);  }
+  public void write(byte[] b, int off, int len) { if (on) sink.write(b,off,len);}
+  public void write(int b) {  if (on) sink.write(b);  }
+  }*/
 
 
 class Context {
   private final InputStream in;
-  PrintStream out;
+  private PrintStream out;
+
+  int bitten = 0;
+  int bit = 0;
+  Integer buffer = null;  // very small buffer!
+
+  Integer value = 0;
+
 
   Context(InputStream in, PrintStream out) {
     this.in = in;
     this.out = out;
   }
-  
-  int bitten = 0;
-  int bit = 0;
-  Integer buffer = null;  // very small buffer!
 
+  private Context(Context prototype) {
+    this.in = prototype.in;
+    this.out = prototype.out;
+    this.bitten = prototype.bitten;
+    this.bit = prototype.bit;
+    this.buffer = prototype.buffer;
+    this.value = prototype.value;
+  }
+
+  void print(String value) {
+    if (out != null) out.print(value);
+  }
+
+  void println(String value) {
+    if (out != null) out.println(value);
+  }
+
+  void printf(String format, Object... args) {
+    if (out != null) out.printf(format, args);
+  }
+
+  Context silent() {
+    Context result = new Context(this);
+    result.out = null;
+    return result;
+  }
+  
   int bite() throws DeconError {
     if (buffer != null) {
       int result = buffer;
@@ -506,8 +550,6 @@ class Context {
       return false;
     }
   }
-
-  Integer value = 0;
 }
 
 
@@ -573,17 +615,17 @@ class ArrayType extends Type {
     boolean isstr = 
       (e instanceof NumericType) &&
       ((NumericType)e).base == 256;
-    context.out.print(isstr ? "\"" : "[");
+    context.print(isstr ? "\"" : "[");
     for (int i = 0; ; ++i) {
       if (length != null && i >= length) break;
       if (until != null && context.value == until) break;
       if (before != null && context.peek() == before) break;
       if (length == null && until == null && before == null && context.eof()) 
         break;
-      if (!isstr && i > 0) context.out.print(", ");
+      if (!isstr && i > 0) context.print(", ");
       e.deconstruct(context);
     }
-    context.out.print(isstr ? "\"" : "]");
+    context.print(isstr ? "\"" : "]");
   }
 }
 
@@ -631,16 +673,16 @@ class NumericType extends Type {
     }
     if (base == 256) {
       if (context.value == '\\') {
-        context.out.print("\\\\");
+        context.print("\\\\");
       } else if (context.value == '"') {
-        context.out.print("\\\"");
+        context.print("\\\"");
       } else if (context.value < 32 || context.value > 127) {
-        context.out.printf("\\u%04x", context.value);
+        context.printf("\\u%04x", context.value);
       } else {
-        context.out.printf("%c", context.value);
+        context.printf("%c", context.value);
       }
     } else {
-      context.out.print(Integer.toString(context.value, base));
+      context.print(Integer.toString(context.value, base));
     }
   }
 }
@@ -676,15 +718,19 @@ class StructType extends Type {
 
 
   public void deconstruct(Context context) throws DeconError {
-    context.out.println("{");
+    context.println("{");
     int i = 0;
     for (Field field : fields) {
-      if (i++ > 0)
-        context.out.println(",");
-      context.out.print("\"" + field.name + "\":");
-      field.type.deconstruct(context);
+      if (field.name == null || field.name.startsWith("_")) {
+        field.type.deconstruct(context.silent());
+      } else {
+        if (i++ > 0)
+          context.println(",");
+        context.print("\"" + field.name + "\":");
+        field.type.deconstruct(context);
+      }
     }
-    context.out.println("}");
+    context.println("}");
   }
 }
 
