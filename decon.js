@@ -9,6 +9,12 @@ var fs = require("fs");
 // Syntax error during .con file parsing
 function ParseError(problem) {
   this.problem = problem;
+
+  var err = new Error;
+  err.name = 'Trace';
+  err.message = '';
+  Error.captureStackTrace(err, arguments.callee);
+  this.stack = err.stack;
 }
 
 // Syntax error during deconstruction phase
@@ -35,7 +41,7 @@ var fpRegex =
 
 var intRegex = "[+-]?[0-9]+";
 //var punctRegex = "[-!#$%&()\\*\\+,\\./:;<=>?@\\[\\\\]^_`{|}~]";
-var punctRegex = "[-\\.*/+]";
+var punctRegex = "[-\\.*/+={}\\[\\]]";
                 
 
 function TokenMatcher(input) {
@@ -46,13 +52,14 @@ function TokenMatcher(input) {
                        +"("                        // 2. any token: (
                        +  "([\\r\\n])"             // 3.   \n
                        +  "|\"(.*)\""              // 4.   quoted
-                       +  "|([_a-z][-\\w]*)"       // 5.   lcid
-                       +  "|([A-Z][-\\w]*)"        // 6.   ucid
+                       +  "|([_a-z]\\w*)"          // 5.   lcid
+                       +  "|([A-Z]\\w*)"           // 6.   ucid
                        +  "|0[xX]([0-9a-fA-F]+)"   // 7.   hex constant
                        +  "|("+intRegex+")"        // 8.   numerical constant
                        +  "|("+punctRegex+")"      // 9.   punctuation
                        +  "|($)"                   // 10.  EOF
-                       +")", "m");                 //    )  multiline
+                       +  "|(.)"                   // 11.  illegal
+                       +")");                      //    ) 
 
   this.find = function () {
     this.match = this.re.exec(this.input.substr(this.pos));
@@ -62,7 +69,7 @@ function TokenMatcher(input) {
     return this.match;
   }
   
-  this.groupCount = function () { return this.this.match.length; }
+  this.groupCount = function () { return this.match.length; }
 
   this.group = function (n) { return this.match && this.match[n || 0]; }
   
@@ -84,7 +91,8 @@ var T = {
   HEXNUMBER  : 7,
   NUMBER     : 8,
   PUNCTUATION: 9,
-  EOF        : 10
+  EOF        : 10,
+  ILLEGAL    : 11
 };
 
 // Reverse-lookup of token types
@@ -137,8 +145,9 @@ function testParseNumeric(input, expected) {
   }
 }
 
+var assert = require("assert").ok;
+
 function runTests() {
-  var assert = require("assert").ok;
   assert(isnull(runTests['nothing']));
   assert(!isnull(runTests));
   assert(isnull(null));
@@ -153,6 +162,10 @@ function runTests() {
   testMatch("0x0", [ T.HEXNUMBER ]);
   testMatch("0XABC", [ T.HEXNUMBER ]);
   testMatch("*", [ T.PUNCTUATION ]);
+  testMatch("=", [ T.PUNCTUATION ]);
+  testMatch("* =", [ T.PUNCTUATION, T.PUNCTUATION ]);
+  testMatch(" { } ", [ T.PUNCTUATION, T.PUNCTUATION ]);
+  testMatch(" <> ", [ T.ILLEGAL, T.ILLEGAL ]);
   
   testParseNumeric("6", 6);
   testParseNumeric("3", 3);
@@ -167,17 +180,17 @@ function runTests() {
 
 var types = {};
 // One predefined type
-var Int = new NumericType();
-Int.signed = true;
-Int.size = 32;
-Int.bigendian = false;
-Int.base = 10;
+var Int = new NumericType({
+    signed: true,
+    size: 32,
+    bigendian: false,
+    base:  10});
 types["Int"] = Int;
 
 function dereferenceType(t) {
   for (; t instanceof ReferenceType;) {
     var name = t.name;
-    t = types.get(name);
+    t = types[name];
     if (isnull(t))
       throw new ParseError("Unknown type " + name);
   }
@@ -197,6 +210,23 @@ function DeconParser(text) {
     }
   }
 
+  this.lineno = function () {
+    return tokenMatcher.input.substring(0, tokenMatcher.pos).
+      split("\n").length - 1;
+  };
+
+  this.errorContext = function () {
+    if (!tokenMatcher.match) return "illegal input";
+    var t = 3;
+    for (; !isnull(T[t]); ++t) {
+      if (!isnull(tokenMatcher.group(t))) {
+        t = T[t];
+        break;
+      }
+    }
+    return t + ": '" + tokenMatcher.group(T.TOKEN) + "'";
+  }
+
   var is = this.is = function (tokenTypeOrLiteral) { 
     if (typeof tokenTypeOrLiteral == typeof "")
       return tokenMatcher.group(T.TOKEN) == tokenTypeOrLiteral;
@@ -205,6 +235,7 @@ function DeconParser(text) {
   }
 
   function take(something) {
+    console.error("TAKING " + tokenMatcher.group(T.TOKEN));
     if (isnull(something)) {
       var result = tokenMatcher.group(T.TOKEN);
       advance();
@@ -218,37 +249,8 @@ function DeconParser(text) {
       var tokenType = something;
       var result = tokenMatcher.group(tokenType);
       if (isnull(result)) {
-        var what;
-        switch (tokenType) {
-        case T.WHITESPACE:
-          what = "whitespace";
-          break;
-        case T.NEWLINE:
-          what = "newline";
-          break;        
-        case T.QUOTED:
-          what = "quoted string";
-          break;
-        case T.LCID:
-          what = "identifier";
-          break;
-        case T.UCID:
-          what = "Identifier";
-          break;
-        case T.NUMBER:
-          what = "number";
-          break;
-        case T.PUNCTUATION:
-          what = "punctuation";
-          break;
-        case T.EOF:
-          what = "end of file";
-          break;
-        default:
-          what = "token type " + tokenType;
-          break;
-        }
-        throw new ParseError("Expected " + what);
+        debugger;
+        throw new ParseError("Expected " + T[tokenType]);
       }
       advance();
       return result;
@@ -275,7 +277,7 @@ function DeconParser(text) {
     while (is(T.NEWLINE)) advance();
   }
 
-  function go() {
+  this.go = function () {
     maybeTakeNewlines();
     while (!is(T.EOF)) {
       
@@ -316,8 +318,8 @@ function DeconParser(text) {
       // affect all descendants (endianness is what I'm thinking about here,
       // but that also allows forward references)
       result = dereferenceType(result);
-      if (!(result instanceof NumericType))
-        throw new ParseError("Numeric type expected");
+      //if (!(result instanceof NumericType))
+      //  throw new ParseError("Numeric type expected; got " + result.prototype);
       var nt = new NumericType(result);
       var modifier = take(T.LCID);
       if (modifier == "signed") {
@@ -411,7 +413,7 @@ function main() {
         // Don't know it - look for a .con file
         if (fs.statSync(arg + ".con").isFile())
           parseFile(arg + ".con");
-        main = types.get(arg);
+        main = types[arg];
       }
       if (isnull(main)) {
         console.error("Construction not found: " + arg);
@@ -454,7 +456,7 @@ function main() {
     // TODO print some more context
     console.error("DECONSTRUCTION ERROR @ " + context.bitten + ": " +
                   de.problem);
-    //de.printStackTrace();
+    console.error(de.stack);
     process.exit(-2);
   }
 }
@@ -468,7 +470,7 @@ function usage() {
 
 function readFile(filename) {
   try {
-    return fs.readFileSync(filename);
+    return fs.readFileSync(filename, 'utf8');
   } catch (IOException) {
     console.error("Error reading file: '" + filename + "'");
     process.exit(1);
@@ -478,18 +480,21 @@ function readFile(filename) {
 
 function parseFile(filename) {
   var program = readFile(filename);
+  assert(program);
   try {
     var p = new DeconParser(program);
     p.go();
-  } catch (ParseError) {
-    // TODO add context
-    var lineno = program.substring(0, 
-                 p.tokenMatcher.start()).replaceAll("[^\n]", "").length() + 1;
-    console.error("SYNTAX ERROR [" + filename + ":" + 
-                  lineno + "]: " + 
-                  e.problem + " at '" + p.tokenMatcher.group(T.TOKEN) + "'");
-    //e.printStackTrace(process.stderr);
-    process.exit(-1);
+  } catch (e) {
+    if (e instanceof ParseError) {
+      debugger;
+      // TODO add context
+      console.error("SYNTAX ERROR [" + filename + ":" + 
+                    (p ? p.lineno() : 0) + "]: " + 
+                    e.problem + (p ? " at "+p.errorContext() : ""));
+      console.error(e.stack);
+      process.exit(-1);
+    }
+    throw e;
   }
 }
 
@@ -564,12 +569,13 @@ function Type() {
 
 
 function ReferenceType(name) {
-  this.prototype = Type.prototype;
+  this.prototype = new Type();
 
   this.name = name;
   
   this.dereference = function () {
     var result = types[name];
+    console.error(result);
     if (!isnull(result)) result = result.dereference();
     return result;
   }
@@ -593,14 +599,15 @@ function ReferenceType(name) {
 
 
 function ArrayType(element) {
+  this.prototype = new Type();
 
   this.element = element;
 
   this.toString = function () {
     return ("" + this.element + "[" + 
-            (!isnull(this.until) ? "until " + until : "") + 
-            (!isnull(this.before) ? "before " + until : "") + 
-            (!isnull(this.length) ? length : "") + 
+            (!isnull(this.until) ? "until " + this.until : "") + 
+            (!isnull(this.before) ? "before " + this.before : "") + 
+            (!isnull(this.length) ? this.length : "") + 
             "]");
   }
 
@@ -625,8 +632,13 @@ function ArrayType(element) {
 }
 
 
-function NumericType() {
-  this.prototype = Type;
+function NumericType(basis) {
+  NumericType.prototype = new Type();
+
+  this.signed = basis.signed;
+  this.size = basis.size;
+  this.bigendian = basis.bigendian;
+  this.base = basis.base;
 
   this.toString = function () {
     var result = (this.signed ? "i" : "u") + this.size;
@@ -671,7 +683,7 @@ function NumericType() {
 
 
 function StructType() {
-  this.prototype = Type;
+  this.prototype = new Type();
 
   function Field(name, type) {
     this.name = name;
@@ -691,7 +703,7 @@ function StructType() {
   this.toString = function () {
     var result = "{\n";
     for (var i = 0; i < fields.length; ++i) 
-      result += field + "\n";
+      result += fields[i] + "\n";
     return result + "}";
   }
 
