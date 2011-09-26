@@ -235,7 +235,6 @@ function DeconParser(text) {
   }
 
   function take(something) {
-    console.error("TAKING " + tokenMatcher.group(T.TOKEN));
     if (isnull(something)) {
       var result = tokenMatcher.group(T.TOKEN);
       advance();
@@ -426,32 +425,37 @@ function main() {
   
   if (isnull(main)) usage();
 
-  var fin = process.stdin;
-  var fout = process.stdout;
+
   if (a < args.length) {
-    var fin = fs.openSync(args[a++], 'r');
-    var err = fin.shift(); 
-    if (err) {
-      console.error("Input file not found: " + args[a-1]);
+    try {
+      var inbuf = fs.readFileSync(args[a++]);
+    } catch (e) {
+      console.error("Error reading input file: " + args[a-1]);
       process.exit(404);
     }
+  } else {
+    throw new Error("Read from stdin unimplemented");
   }
 
-  if (a < args.length)
-    fout = fs.openSync(args[a++], 'w');
+  //
+  //if (a < args.length)
+  //  fout = fs.openSync(args[a++], 'w');
 
   if (a < args.length)
     usage();
 
+  console.error("TYPES:");
   for (var k in types)
     if (types.hasOwnProperty(k))
       console.error(k + ": " + types[k]);
 
-  console.error(main);
+  console.error("MAIN:");
+  console.error(""+main);
   
-  var context = new Context(fin, fout);
+  var context = new Context(inbuf);
   try {
-    main.deconstruct(context);
+    var tree = main.deconstruct(context);
+    console.log(JSON.stringify(tree));
   } catch (de) {
     // TODO print some more context
     console.error("DECONSTRUCTION ERROR @ " + context.bitten + ": " +
@@ -499,64 +503,25 @@ function parseFile(filename) {
 }
 
 
-function Context(fin, out) {
+function Context(buffer) {
   var bitten = 0;
-  var bit = 0;
-  var buffer = "";
 
-  var value = 0;
+  this.value = null;
 
-  this.print = function (value) {
-    if (!isnull(out)) out.print(value);
+  this.bite = function () {
+    return buffer[bitten++];
   }
-  
-  this.println = function (value) {
-    if (!isnull(out)) out.println(value);
-  }
-
-  this.printf = function () {
-    if (!isnull(out)) out.printf.call(arguments);
-  }
-
-  this.bite = function() {
-    if (buffer.length > 0) {
-      var result = buffer.charCodeAt(0);
-      buffer = buffer.substr(1);
-      ++bitten;
-      return result;
-    }
-
-    try {
-      bit = fin.read();
-    } catch (e) {
-      throw new DeconError("Input error");
-    }
-    if (bit == -1)
-      throw new DeconError("EOF");
-    ++bitten;
-    return bit;
-  }
-
 
   this.peek = function () {
-    if (eof()) return -1;  // fills the buffer
-    return buffer.charCodeAt(0);
+    return buffer[bitten];
   }
     
-
   this.eof = function () {
-    if (buffer.length > 0) return false;
-    try {
-      buffer += fin.read();
-    } catch (e) {
-      throw new DeconError("Input error");
-    }
-    if (buffer == -1) {
-      buffer = null;
-      return true;
-    } else {
-      return false;
-    }
+    return bitten >= buffer.length;
+  }
+
+  this.length = function () {
+    return buffer.length;
   }
 }
 
@@ -575,7 +540,6 @@ function ReferenceType(name) {
   
   this.dereference = function () {
     var result = types[name];
-    console.error(result);
     if (!isnull(result)) result = result.dereference();
     return result;
   }
@@ -592,7 +556,7 @@ function ReferenceType(name) {
     var t = types[name];
     if (isnull(t))
       throw new DeconError("Undefined type " + name);
-    t.deconstruct(context);
+    return t.deconstruct(context);
   }
 }
 
@@ -614,20 +578,22 @@ function ArrayType(element) {
   this.deconstruct = function (context) {
     context.value = null;
     var e = element.dereference();
-    var isstr = 
-      (e instanceof NumericType) &&
-      (e.base == 256);
-    context.print(isstr ? "\"" : "[");
+    var isstr = (e.base == 256);
+    var result = isstr ? "" : [];
     for (var i = 0; ; ++i) {
       if (!isnull(this.length) && i >= this.length) break;
       if (!isnull(this.until)  && context.value == this.until) break;
       if (!isnull(this.before) && context.peek() == this.before) break;
-      if (is(length) && isnull(until) && isnull(before) && context.eof()) 
-        break;
-      if (!isstr && i > 0) context.print(", ");
-      e.deconstruct(context);
+      if (isnull(this.length) && isnull(this.until) && isnull(this.before) && 
+          context.eof()) break;
+      var v = e.deconstruct(context);
+      if (isstr)
+        result += v;
+      else
+        result.push(v);
     }
-    context.print(isstr ? "\"" : "]");
+    context.value = result;
+    return context.value;
   }
 }
 
@@ -654,30 +620,20 @@ function NumericType(basis) {
 
   this.deconstruct = function (context) {
     context.value = 0;
-    for (var i = 0; i < size; i += 8) {
+    for (var i = 0; i < this.size; i += 8) {
       var v = context.bite();
       if (this.bigendian) {
-        if (this.signed && i == 0) v = negateByte(v);
+        if (this.signed && i == 0 && (v & 0x80)) v = negateByte(v);
         context.value <<= 8;
         context.value += v;
       } else {
-        if (this.signed && i == size - 8) v = negateByte(v);
+        if (this.signed && i == this.size - 8 && (v & 0x80)) v = negateByte(v);
         context.value |= v << i;
       }
     }
-    if (this.base == 256) {
-      if (context.value == '\\') {
-        context.print("\\\\");
-      } else if (context.value == '"') {
-        context.print("\\\"");
-      } else if (context.value < 32 || context.value > 127) {
-        context.printf("\\u%04x", context.value);
-      } else {
-        context.printf("%c", context.value);
-      }
-    } else {
-      context.print(context.value);
-    }
+    if (this.base == 256) 
+      context.value = String.fromCharCode(context.value);
+    return context.value;
   }
 }
 
@@ -708,15 +664,12 @@ function StructType() {
   }
 
   this.deconstruct = function (context) {
-    context.println("{");
+    var result = {}
     for (var i = 0; i < fields.length; ++i) {
       var field = fields[i];
-      if (i > 0)
-        context.println(",");
-      context.print("\"" + field.name + "\":");
-      field.type.deconstruct(context);
+      result[field.name] = field.type.deconstruct(context);
     }
-    context.println("}");
+    return (context.value = result);
   }
 }
 
