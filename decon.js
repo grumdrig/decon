@@ -437,11 +437,7 @@ function main() {
     throw new Error("Read from stdin unimplemented");
   }
 
-  //
-  //if (a < args.length)
-  //  fout = fs.openSync(args[a++], 'w');
-
-  if (a < args.length)
+  if (a+1 < args.length)
     usage();
 
   console.error("TYPES:");
@@ -455,7 +451,6 @@ function main() {
   var context = new Context(inbuf);
   try {
     var tree = main.deconstruct(context);
-    console.log(JSON.stringify(tree));
   } catch (de) {
     // TODO print some more context
     console.error("DECONSTRUCTION ERROR @ " + context.bitten + ": " +
@@ -463,6 +458,11 @@ function main() {
     console.error(de.stack);
     process.exit(-2);
   }
+
+  if (a < args.length)
+    fs.writeFile(args[a++], JSON.stringify(tree));
+  else
+    console.log(tree);
 }
 
 
