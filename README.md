@@ -61,3 +61,23 @@ field specifications, a name and a type, between braces, e.g.:
       age Int
     }
 
+
+Usage
+-----
+
+From the command line, usage is
+
+    node decon.js [DEF.con...] MAIN [IN [OUT]]
+
+where `MAIN` is the root type, defined in some `.con` file listed,
+used to parse the binary file `IN` (or read from stdin). The resulting
+JSON structure is written to the name OUT` file, or stdout.
+
+Within node, use, for example:
+
+    var decon = require("decon")
+    decon.parse("Int = Numeric.littleendian");
+    var bmpcon = decon.import("bmp.con").BitmapFile;
+    var bmp = bmpcon.deconstructFile("BitmapFile", "dib.bmp");
+    console.log("Width = " + bmp.info.width);
+

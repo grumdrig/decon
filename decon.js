@@ -251,7 +251,6 @@ function DeconParser(text) {
       var tokenType = something;
       var result = tokenMatcher.group(tokenType);
       if (isnull(result)) {
-        debugger;
         throw new ParseError("Expected " + T[tokenType]);
       }
       advance();
@@ -307,7 +306,7 @@ function DeconParser(text) {
         var fieldname = take(T.LCID);
         var fieldtype = parseType();
         s.addField(fieldname, fieldtype);
-        takeNewlines();
+        maybeTakeNewlines();
       }
       var result = s;
     } else {
@@ -404,7 +403,7 @@ String.prototype.endsWith = function(suffix) {
 
 function main() {
   var args = process.argv.slice(2);
-  var main;
+  var Main;
   var a = 0;
   for (; a < args.length; ++a) {
     var arg = args[a];
@@ -412,14 +411,14 @@ function main() {
       parseFile(arg);
     } else {
       // Must be a type
-      main = TYPES[arg];
-      if (isnull(main)) {
+      Main = TYPES[arg];
+      if (isnull(Main)) {
         // Don't know it - look for a .con file
         if (fs.statSync(arg + ".con").isFile())
           parseFile(arg + ".con");
-        main = TYPES[arg];
+        Main = TYPES[arg];
       }
-      if (isnull(main)) {
+      if (isnull(Main)) {
         console.error("Construction not found: " + arg);
         process.exit(404);
       }
@@ -428,17 +427,7 @@ function main() {
     }
   }
   
-  if (isnull(main)) usage();
-
-  try {
-    var inbuf = fs.readFileSync(args[a++] || '/dev/stdin');
-  } catch (e) {
-    console.error("Error reading input file: " + args[a-1]);
-    process.exit(404);
-  }
-
-  if (a+1 < args.length)
-    usage();
+  if (isnull(Main)) usage();
 
   console.error("TYPES:");
   for (var k in TYPES)
@@ -446,17 +435,20 @@ function main() {
       console.error(k + ": " + TYPES[k]);
 
   console.error("MAIN:");
-  console.error(""+main);
-  
-  var context = new Context(inbuf);
+  console.error(""+Main);
+
   try {
-    var tree = main.deconstruct(context);
+    var tree = Main.deconstructFile(args[a++] || '/dev/stdin');
   } catch (de) {
-    // TODO print some more context
-    console.error("DECONSTRUCTION ERROR @ " + context.bitten + ": " +
-                  de.problem);
-    console.error(de.stack);
-    process.exit(-2);
+    if (de instanceof DeconError) {
+      // TODO print some more context
+      console.error("DECONSTRUCTION ERROR @ " + context.bitten + ": " +
+                    de.problem);
+      console.error(de.stack);
+      process.exit(-2);
+    } else {
+      throw de;
+    }
   }
 
   if (a < args.length)
@@ -467,7 +459,7 @@ function main() {
 
 
 function usage() {
-  console.error("Usage: java DeconParser [DEF.con...] MAIN [IN [OUT]]");
+  console.error("Usage: node decon.js [DEF.con...] MAIN [IN [OUT]]");
   process.exit(302);
 }
 
@@ -482,15 +474,13 @@ function readFile(filename) {
   }
 }
 
-function parseFile(filename) {
+var parseFile = exports.import = function (filename) {
   var program = readFile(filename);
   assert(program);
   try {
-    var p = new DeconParser(program);
-    p.go();
+    parse(program);
   } catch (e) {
     if (e instanceof ParseError) {
-      debugger;
       // TODO add context
       console.error("SYNTAX ERROR [" + filename + ":" + 
                     (p ? p.lineno() : 0) + "]: " + 
@@ -500,6 +490,14 @@ function parseFile(filename) {
     }
     throw e;
   }
+  return TYPES;
+}
+
+  
+var parse = exports.parse = function (string) {
+  var p = new DeconParser(string);
+  p.go();
+  return TYPES;
 }
 
 
@@ -529,12 +527,31 @@ function Context(buffer) {
 
 function Type() {
   this.dereference = function () { return this; }
+
+  this.deconstructFile = function (filename) {
+    var inbuf = fs.readFileSync(filename);
+    var context = new Context(inbuf);
+    return this.deconstruct(context);
+  }
 }
+
+Type.sire = function (Child) {
+  //Child.prototype = new Type();
+  //Child.prototype.constructor = Child;
+  var t = new Type();
+  for (var k in t)
+    if (t.hasOwnProperty(k))
+      Child.prototype[k] = t[k];
+}
+
+Type.sire(ReferenceType);
+Type.sire(ArrayType);
+Type.sire(NumericType);
+Type.sire(StructType);
 
 
 
 function ReferenceType(name) {
-  this.prototype = new Type();
 
   this.name = name;
   
@@ -563,7 +580,6 @@ function ReferenceType(name) {
 
 
 function ArrayType(element) {
-  this.prototype = new Type();
 
   this.element = element;
 
@@ -601,7 +617,6 @@ function ArrayType(element) {
 
 
 function NumericType(basis) {
-  NumericType.prototype = new Type();
 
   this.signed = basis.signed;
   this.size = basis.size;
@@ -641,7 +656,6 @@ function NumericType(basis) {
 
 
 function StructType() {
-  this.prototype = new Type();
 
   function Field(name, type) {
     this.name = name;
@@ -675,6 +689,7 @@ function StructType() {
   }
 }
 
-runTests();
-
-main();
+if (require.main == module) {
+  runTests();
+  main();
+}
