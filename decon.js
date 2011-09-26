@@ -1,10 +1,10 @@
 
+// TODO: literals
 // TODO: get rid of case-significance for types vs fields, etc
 // TODO: constants
 // TODO: probably want a string type
 // TODO: use a context for dereferencing
-// TODO: boolean type
-// TODO: null type
+// TODO: back-references and indices on arrays
 
 var fs = require("fs");
 
@@ -22,6 +22,12 @@ function ParseError(problem) {
 // Syntax error during deconstruction phase
 function DeconError(problem) {
   this.problem = problem;
+
+  var err = new Error;
+  err.name = 'Trace';
+  err.message = '';
+  Error.captureStackTrace(err, arguments.callee);
+  this.stack = err.stack;
 }
 
 
@@ -43,7 +49,7 @@ var fpRegex =
 
 var intRegex = "[+-]?[0-9]+";
 //var punctRegex = "[-!#$%&()\\*\\+,\\./:;<=>?@\\[\\\\]^_`{|}~]";
-var punctRegex = "[-\\.*/+={}\\[\\]]";
+var punctRegex = "[-\\.*/+={}\\[\\]()]";
                 
 
 function TokenMatcher(input) {
@@ -333,8 +339,12 @@ function DeconParser(text) {
         nt.bigendian = true;
       } else if (modifier == "littleendian") {
         nt.bigendian = false;
-      } else if (modifier == "base") {
-        nt.base = parseNumeric();
+      } else if (modifier == "null") {
+        nt.base = 0;
+      } else if (modifier == "numeric") {
+        nt.base = 10;
+      } else if (modifier == "boolean") {
+        nt.base = 2;
       } else if (modifier == "ascii") {
         nt.base = 256;
       } else {
@@ -650,6 +660,10 @@ function NumericType(basis) {
     }
     if (this.base == 256) 
       context.value = String.fromCharCode(context.value);
+    else if (this.base == 2) 
+      context.value = !!context.value;
+    else if (this.base == 0)
+      context.value = null;
     return context.value;
   }
 }
