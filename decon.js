@@ -3,6 +3,8 @@
 // TODO: constants
 // TODO: probably want a string type
 // TODO: use a context for dereferencing
+// TODO: boolean type
+// TODO: null type
 
 var fs = require("fs");
 
@@ -178,19 +180,20 @@ function runTests() {
 }
 
 
-var types = {};
+// TODO: get this into some scope somewhere, not global, please!
+var TYPES = {};
 // One predefined type
 var Int = new NumericType({
     signed: true,
     size: 32,
     bigendian: false,
     base:  10});
-types["Int"] = Int;
+TYPES["Int"] = Int;
 
 function dereferenceType(t) {
   for (; t instanceof ReferenceType;) {
     var name = t.name;
-    t = types[name];
+    t = TYPES[name];
     if (isnull(t))
       throw new ParseError("Unknown type " + name);
   }
@@ -289,7 +292,7 @@ function DeconParser(text) {
         var name = take(T.UCID);
         take("=");
         var type = parseType();
-        types[name] = type;
+        TYPES[name] = type;
       }
       
       if (!is(T.EOF)) takeNewlines();
@@ -345,6 +348,8 @@ function DeconParser(text) {
       result = new ArrayType(result);
       if (tryToTake("until")) {
         result.until = parseNumeric();
+      } else if (tryToTake("through")) {
+        result.through = parseNumeric();
       } else if (tryToTake("before")) {
         result.before = parseNumeric();
       } else {
@@ -407,12 +412,12 @@ function main() {
       parseFile(arg);
     } else {
       // Must be a type
-      main = types[arg];
+      main = TYPES[arg];
       if (isnull(main)) {
         // Don't know it - look for a .con file
         if (fs.statSync(arg + ".con").isFile())
           parseFile(arg + ".con");
-        main = types[arg];
+        main = TYPES[arg];
       }
       if (isnull(main)) {
         console.error("Construction not found: " + arg);
@@ -425,25 +430,20 @@ function main() {
   
   if (isnull(main)) usage();
 
-
-  if (a < args.length) {
-    try {
-      var inbuf = fs.readFileSync(args[a++]);
-    } catch (e) {
-      console.error("Error reading input file: " + args[a-1]);
-      process.exit(404);
-    }
-  } else {
-    throw new Error("Read from stdin unimplemented");
+  try {
+    var inbuf = fs.readFileSync(args[a++] || '/dev/stdin');
+  } catch (e) {
+    console.error("Error reading input file: " + args[a-1]);
+    process.exit(404);
   }
 
   if (a+1 < args.length)
     usage();
 
   console.error("TYPES:");
-  for (var k in types)
-    if (types.hasOwnProperty(k))
-      console.error(k + ": " + types[k]);
+  for (var k in TYPES)
+    if (TYPES.hasOwnProperty(k))
+      console.error(k + ": " + TYPES[k]);
 
   console.error("MAIN:");
   console.error(""+main);
@@ -539,7 +539,7 @@ function ReferenceType(name) {
   this.name = name;
   
   this.dereference = function () {
-    var result = types[name];
+    var result = TYPES[name];
     if (!isnull(result)) result = result.dereference();
     return result;
   }
@@ -553,7 +553,7 @@ function ReferenceType(name) {
   }
 
   this.deconstruct = function(context) {
-    var t = types[name];
+    var t = TYPES[name];
     if (isnull(t))
       throw new DeconError("Undefined type " + name);
     return t.deconstruct(context);
@@ -570,6 +570,7 @@ function ArrayType(element) {
   this.toString = function () {
     return ("" + this.element + "[" + 
             (!isnull(this.until) ? "until " + this.until : "") + 
+            (!isnull(this.through) ? "through " + this.through : "") + 
             (!isnull(this.before) ? "before " + this.before : "") + 
             (!isnull(this.length) ? this.length : "") + 
             "]");
@@ -587,6 +588,7 @@ function ArrayType(element) {
       if (isnull(this.length) && isnull(this.until) && isnull(this.before) && 
           context.eof()) break;
       var v = e.deconstruct(context);
+      if (!isnull(this.through)&& context.value == this.through) break;
       if (isstr)
         result += v;
       else
