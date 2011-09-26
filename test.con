@@ -1,0 +1,15 @@
+import "standard.con"
+
+Test = {
+  f1 "impor" Char[5]
+  Char[5]
+  f2 Char[10]
+  nada {
+    b Char.boolean
+    n Char.null
+  }[3]
+  f3 Char[through "]"]
+  f4 Byte[before ']']
+  f5 Char
+  Char[]
+}

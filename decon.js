@@ -20,8 +20,9 @@ function ParseError(problem) {
 }
 
 // Syntax error during deconstruction phase
-function DeconError(problem) {
+function DeconError(problem, context) {
   this.problem = problem;
+  this.context = context;
 
   var err = new Error;
   err.name = 'Trace';
@@ -60,13 +61,14 @@ function TokenMatcher(input) {
                        +"("                        // 2. any token: (
                        +  "([\\r\\n])"             // 3.   \n
                        +  "|\"(.*)\""              // 4.   quoted
-                       +  "|([_a-z]\\w*)"          // 5.   lcid
-                       +  "|([A-Z]\\w*)"           // 6.   ucid
-                       +  "|0[xX]([0-9a-fA-F]+)"   // 7.   hex constant
-                       +  "|("+intRegex+")"        // 8.   numerical constant
-                       +  "|("+punctRegex+")"      // 9.   punctuation
-                       +  "|($)"                   // 10.  EOF
-                       +  "|(.)"                   // 11.  illegal
+                       +  "|'(.*)'"                // 5.   single-quoted
+                       +  "|([_a-z]\\w*)"          // 6.   lcid
+                       +  "|([A-Z]\\w*)"           // 7.   ucid
+                       +  "|0[xX]([0-9a-fA-F]+)"   // 8.   hex constant
+                       +  "|("+intRegex+")"        // 9.   numerical constant
+                       +  "|("+punctRegex+")"      // 10.  punctuation
+                       +  "|($)"                   // 11.  EOF
+                       +  "|(.)"                   // 12.  illegal
                        +")");                      //    ) 
 
   this.find = function () {
@@ -90,17 +92,18 @@ function TokenMatcher(input) {
 
 // Token types
 var T = {
-  WHITESPACE : 1,
-  TOKEN      : 2,
-  NEWLINE    : 3,
-  QUOTED     : 4,
-  LCID       : 5,
-  UCID       : 6,
-  HEXNUMBER  : 7,
-  NUMBER     : 8,
-  PUNCTUATION: 9,
-  EOF        : 10,
-  ILLEGAL    : 11
+  WHITESPACE   : 1,
+  TOKEN        : 2,
+  NEWLINE      : 3,
+  QUOTED       : 4,
+  SINGLEQUOTED : 5,
+  LCID         : 6,
+  UCID         : 7,
+  HEXNUMBER    : 8,
+  NUMBER       : 9,
+  PUNCTUATION  : 10,
+  EOF          : 11,
+  ILLEGAL      : 12
 };
 
 // Reverse-lookup of token types
@@ -110,8 +113,8 @@ for (var i in T)
 
 
 function isnull(x) {
-  return (x == null || x == undefined || 
-          typeof x == 'undefined' || typeof x == 'null');
+  return (x === null || x === undefined || 
+          typeof x === 'undefined' || typeof x === 'null');
 }
 
 function testMatch(input, expected) {
@@ -181,6 +184,7 @@ function runTests() {
   testParseNumeric("3*2", 3*2);
   testParseNumeric("-2*3/26", -2*3/26);
   testParseNumeric("0x20", 32);
+  testParseNumeric("' '", 32);
   
   console.error("PASS");
 }
@@ -237,8 +241,8 @@ function DeconParser(text) {
   }
 
   var is = this.is = function (tokenTypeOrLiteral) { 
-    if (typeof tokenTypeOrLiteral == typeof "")
-      return tokenMatcher.group(T.TOKEN) == tokenTypeOrLiteral;
+    if (typeof tokenTypeOrLiteral === typeof "")
+      return tokenMatcher.group(T.TOKEN) === tokenTypeOrLiteral;
     else
       return tokenMatcher.group(tokenTypeOrLiteral) != null;
   }
@@ -248,7 +252,7 @@ function DeconParser(text) {
       var result = tokenMatcher.group(T.TOKEN);
       advance();
       return result;
-    } else if (typeof something == typeof "") {
+    } else if (typeof something === typeof "") {
       var literal = something;
       if (!is(literal))
         throw new ParseError("Expected literal '" + literal + "'");
@@ -305,19 +309,30 @@ function DeconParser(text) {
   }
 
   function parseType() {
+    var type = tryToParseType();
+    if (isnull(type)) throw new SyntaxError("Type expected");
+    return type;
+  }
+
+  function tryToParseType() {
     if (tryToTake("{")) {
       // Struct
       var s = new StructType();
       for (maybeTakeNewlines(); !tryToTake("}"); ) {
-        var fieldname = take(T.LCID);
-        var fieldtype = parseType();
-        s.addField(fieldname, fieldtype);
+        var fieldname = (is(T.LCID)) ? take(T.LCID) : null;
+        var fieldvalue = tryToParseLiteral();
+        var fieldtype = tryToParseType();
+        if (isnull(fieldname) && isnull(fieldvalue) && isnull(fieldtype))
+          throw new SyntaxError("Expected field specification");
+        s.addField(fieldname, fieldvalue, fieldtype);
         maybeTakeNewlines();
       }
       var result = s;
-    } else {
+    } else if (is(T.UCID)) {
       // Reference named type
       var result = new ReferenceType(take(T.UCID));
+    } else {
+      return;
     }
 
     while (tryToTake(".")) {
@@ -329,23 +344,23 @@ function DeconParser(text) {
       //  throw new ParseError("Numeric type expected; got " + result.prototype);
       var nt = new NumericType(result);
       var modifier = take(T.LCID);
-      if (modifier == "signed") {
+      if (modifier === "signed") {
         nt.signed = true;
-      } else if (modifier == "unsigned") {
+      } else if (modifier === "unsigned") {
         nt.signed = false;
-      } else if (modifier == "size") {
+      } else if (modifier === "size") {
         nt.size = parseNumeric();
-      } else if (modifier == "bigendian") {
+      } else if (modifier === "bigendian") {
         nt.bigendian = true;
-      } else if (modifier == "littleendian") {
+      } else if (modifier === "littleendian") {
         nt.bigendian = false;
-      } else if (modifier == "null") {
+      } else if (modifier === "null") {
         nt.base = 0;
-      } else if (modifier == "numeric") {
+      } else if (modifier === "numeric") {
         nt.base = 10;
-      } else if (modifier == "boolean") {
+      } else if (modifier === "boolean") {
         nt.base = 2;
-      } else if (modifier == "ascii") {
+      } else if (modifier === "ascii") {
         nt.base = 256;
       } else {
         throw new ParseError("Unknown type modifier");
@@ -356,11 +371,11 @@ function DeconParser(text) {
     while (tryToTake("[")) {
       result = new ArrayType(result);
       if (tryToTake("until")) {
-        result.until = parseNumeric();
+        result.until = parseLiteral();
       } else if (tryToTake("through")) {
-        result.through = parseNumeric();
+        result.through = parseLiteral();
       } else if (tryToTake("before")) {
-        result.before = parseNumeric();
+        result.before = parseLiteral();
       } else {
         result.length = tryToParseNumeric();
       }
@@ -383,6 +398,13 @@ function DeconParser(text) {
       result = parseInt(take());
     } else if (is(T.HEXNUMBER)) {
       result = parseInt(take(T.HEXNUMBER), 16);
+    } else if (is(T.SINGLEQUOTED)) {
+      // TODO: deal with endianness and type-specifying and all that
+      var s = take(T.SINGLEQUOTED);
+      result = 0;
+      for (var i = 0; i < s.length; ++i) {
+        result = (result << 8) + (0xFF & s.charCodeAt(i));
+      }
     } else if (tryToTake("(")) {
       result = parseNumeric();
       take(")");
@@ -403,6 +425,21 @@ function DeconParser(text) {
 
     return result;
   }
+
+  function parseLiteral() {
+    var literal = tryToParseLiteral();
+    if (isnull(literal)) throw new SyntaxError("Literal value expected");
+    return literal;
+  }
+
+  function tryToParseLiteral() {
+    if (is(T.QUOTED)) {
+      return take(T.QUOTED);
+    } else {
+      return tryToParseNumeric();
+    }
+  }
+      
 }
 
 
@@ -452,7 +489,7 @@ function main() {
   } catch (de) {
     if (de instanceof DeconError) {
       // TODO print some more context
-      console.error("DECONSTRUCTION ERROR @ " + context.bitten + ": " +
+      console.error("DECONSTRUCTION ERROR @ " + de.context.bitten + ": " +
                     de.problem);
       console.error(de.stack);
       process.exit(-2);
@@ -488,7 +525,8 @@ var parseFile = exports.import = function (filename) {
   var program = readFile(filename);
   assert(program);
   try {
-    parse(program);
+    var p = new DeconParser(program);
+    p.go();
   } catch (e) {
     if (e instanceof ParseError) {
       // TODO add context
@@ -500,32 +538,41 @@ var parseFile = exports.import = function (filename) {
     }
     throw e;
   }
-  return TYPES;
 }
 
   
 var parse = exports.parse = function (string) {
-  var p = new DeconParser(string);
-  p.go();
+  try {
+    var p = new DeconParser(string);
+    p.go();
+  } catch (e) {
+    if (e instanceof ParseError) {
+      // TODO add context
+      console.error("SYNTAX ERROR [" + (p ? p.lineno() : 0) + "]: " + 
+                    e.problem + (p ? " at "+p.errorContext() : ""));
+      console.error(e.stack);
+      process.exit(-1);
+    }
+    throw e;
+  }
   return TYPES;
 }
 
 
 function Context(buffer) {
-  var bitten = 0;
-
+  this.bitten = 0;
   this.value = null;
 
   this.bite = function () {
-    return buffer[bitten++];
+    return buffer[this.bitten++];
   }
 
   this.peek = function () {
-    return buffer[bitten];
+    return buffer[this.bitten];
   }
     
   this.eof = function () {
-    return bitten >= buffer.length;
+    return this.bitten >= buffer.length;
   }
 
   this.length = function () {
@@ -541,7 +588,10 @@ function Type() {
   this.deconstructFile = function (filename) {
     var inbuf = fs.readFileSync(filename);
     var context = new Context(inbuf);
-    return this.deconstruct(context);
+    var result = this.deconstruct(context);
+    if (!context.eof())
+      throw new DeconError("Unconsumed data at end of file", context);
+    return result;
   }
 }
 
@@ -582,7 +632,7 @@ function ReferenceType(name) {
   this.deconstruct = function(context) {
     var t = TYPES[name];
     if (isnull(t))
-      throw new DeconError("Undefined type " + name);
+      throw new DeconError("Undefined type " + name, context);
     return t.deconstruct(context);
   }
 }
@@ -594,10 +644,11 @@ function ArrayType(element) {
   this.element = element;
 
   this.toString = function () {
+    var inspect = require("util").inspect;
     return ("" + this.element + "[" + 
-            (!isnull(this.until) ? "until " + this.until : "") + 
-            (!isnull(this.through) ? "through " + this.through : "") + 
-            (!isnull(this.before) ? "before " + this.before : "") + 
+            (!isnull(this.until) ? "until " + inspect(this.until) : "") + 
+            (!isnull(this.through) ? "through " + inspect(this.through) : "") + 
+            (!isnull(this.before) ? "before " + inspect(this.before) : "") + 
             (!isnull(this.length) ? this.length : "") + 
             "]");
   }
@@ -605,20 +656,20 @@ function ArrayType(element) {
   this.deconstruct = function (context) {
     context.value = null;
     var e = element.dereference();
-    var isstr = (e.base == 256);
+    var isstr = (e.base === 256);
     var result = isstr ? "" : [];
     for (var i = 0; ; ++i) {
       if (!isnull(this.length) && i >= this.length) break;
-      if (!isnull(this.until)  && context.value == this.until) break;
-      if (!isnull(this.before) && context.peek() == this.before) break;
-      if (isnull(this.length) && isnull(this.until) && isnull(this.before) && 
+      if (!isnull(this.until)  && context.value === this.until) break;
+      if (!isnull(this.before) && context.peek() === this.before) break;
+      if (isnull(this.length)  && isnull(this.until) && isnull(this.before) && 
           context.eof()) break;
       var v = e.deconstruct(context);
-      if (!isnull(this.through)&& context.value == this.through) break;
       if (isstr)
         result += v;
       else
         result.push(v);
+      if (!isnull(this.through) && context.value === this.through) break;
     }
     context.value = result;
     return context.value;
@@ -650,19 +701,19 @@ function NumericType(basis) {
     for (var i = 0; i < this.size; i += 8) {
       var v = context.bite();
       if (this.bigendian) {
-        if (this.signed && i == 0 && (v & 0x80)) v = negateByte(v);
+        if (this.signed && i === 0 && (v & 0x80)) v = negateByte(v);
         context.value <<= 8;
         context.value += v;
       } else {
-        if (this.signed && i == this.size - 8 && (v & 0x80)) v = negateByte(v);
+        if (this.signed && i === this.size - 8 && (v & 0x80)) v = negateByte(v);
         context.value |= v << i;
       }
     }
-    if (this.base == 256) 
+    if (this.base === 256) 
       context.value = String.fromCharCode(context.value);
-    else if (this.base == 2) 
+    else if (this.base === 2) 
       context.value = !!context.value;
-    else if (this.base == 0)
+    else if (this.base === 0)
       context.value = null;
     return context.value;
   }
@@ -671,19 +722,20 @@ function NumericType(basis) {
 
 function StructType() {
 
-  function Field(name, type) {
+  function Field(name, value, type) {
     this.name = name;
+    this.value = value;
     this.type = type;
 
     this.toString = function () {
-      return name + " " + type;
+      return name + " " + value + " " + type;
     }
   }
   
   var fields = [];
 
-  this.addField = function (name, type) {
-    fields.push(new Field(name, type));
+  this.addField = function (name, value, type) {
+    fields.push(new Field(name, value, type));
   }
 
   this.toString = function () {
@@ -697,13 +749,18 @@ function StructType() {
     var result = {}
     for (var i = 0; i < fields.length; ++i) {
       var field = fields[i];
-      result[field.name] = field.type.deconstruct(context);
+      var value = field.type.deconstruct(context);
+      if (!isnull(field.value) && value !== field.value)
+        throw new DeconError("Non-matching value: " + value + " expected: " + 
+                             field.value, context);
+      if (!isnull(field.name))
+        result[field.name] = value;
     }
     return (context.value = result);
   }
 }
 
-if (require.main == module) {
+if (require.main === module) {
   runTests();
   main();
 }
