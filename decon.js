@@ -201,16 +201,6 @@ TYPES["Char"] = Char;
 TYPES["Bool"] = Bool;
 TYPES["Null"] = Null;
 
-function dereferenceType(t) {
-  for (; t instanceof ReferenceType;) {
-    var name = t.name;
-    t = TYPES[name];
-    if (isnull(t))
-      throw new ParseError("Unknown type " + name);
-  }
-  return t;
-}     
-
   
 function DeconParser(text) {
 
@@ -300,7 +290,7 @@ function DeconParser(text) {
       } else {
         // Type def
         var name = take(T.UCID);
-        take(T.PUNCTUATION);  // TODO: get more specific...
+        take(":");
         var type = parseType();
         TYPES[name] = type;
       }
@@ -352,7 +342,7 @@ function DeconParser(text) {
       if (tryToTake("unsigned")) {
         result = new ModifiedType("signed", false, result);
       } else if (tryToTake("signed")) {
-        result = new ModifiedType("signed", true, reuslt);
+        result = new ModifiedType("signed", true, result);
       } else if (tryToTake("size")) {
         result = new ModifiedType("size", parseNumeric(), result);
       } else if (tryToTake("bigendian")) {
@@ -472,15 +462,15 @@ function main() {
   
   if (isnull(Main)) usage();
 
-  console.error("TYPES:");
-  for (var k in TYPES)
-    if (TYPES.hasOwnProperty(k))
-      console.error(k + ": " + TYPES[k]);
-
-  console.error("MAIN:");
-  console.error("" + Main);
-
   try {
+    console.error("TYPES:");
+    for (var k in TYPES)
+      if (TYPES.hasOwnProperty(k))
+        console.error(k + ": " + TYPES[k]);
+
+    console.error("MAIN:");
+    console.error("" + Main);
+
     var tree = Main.deconstructFile(args[a++] || '/dev/stdin');
   } catch (de) {
     if (de instanceof DeconError) {
@@ -581,7 +571,7 @@ function Context(buffer) {
 
 
 function Type() {
-  this.dereference = function () { return this; }
+  this.dereference = function (context) { return this; }
 
   this.deconstructFile = function (filename) {
     var inbuf = fs.readFileSync(filename);
@@ -616,18 +606,15 @@ function ReferenceType(name) {
 
   this.name = name;
   
-  this.dereference = function () {
+  this.dereference = function (context) {
     var result = TYPES[name];
-    if (!isnull(result)) result = result.dereference();
+    if (isnull(result)) throw new DeconError("Undefined type " + name, context);
+    result = result.dereference(context);
     return result;
   }
 
   this.toString = function (context) {
-    var t = this.dereference();
-    if (isnull(t))
-      return name + ":???";
-    else
-      return t.toString(context);
+    return this.dereference(context).toString(context);
   }
 
   this.deconstruct = function(context) {
@@ -638,7 +625,7 @@ function ReferenceType(name) {
   }
 
   this.isAscii = function (context) {
-    var t = this.dereference();
+    var t = this.dereference(context);
     return isnull(t) ? false : t.isAscii(context);
   }    
 }
@@ -672,7 +659,7 @@ function ArrayType(element) {
 
   this.deconstruct = function (context) {
     context.value = null;
-    var e = element.dereference();
+    var e = element.dereference(context);
     var isstr = e.isAscii(context);
     var result = isstr ? "" : [];
     for (var i = 0; ; ++i) {
@@ -717,7 +704,11 @@ function NumericType(basis) {
   this.toString = function (context) {
     var result = (signed(context) ? "i" : "u") + size(context);
     if (bigendian(context)) result = result.toUpperCase();
-    if (base(context) != 10) result += "%" + base(context);
+    switch (base(context)) {
+    case 0:   result += "n";  break;
+    case 2:   result += "b";  break;
+    case 256: result += "c";  break;
+    }
     return result;
   }
 

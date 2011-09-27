@@ -23,6 +23,6 @@ Look2: {
   Byte[]
 }
 
-TERMINATOR = 0 Char
+#TERMINATOR = 0 Char
  
-CString: Char[until TERMINATOR]
+#CString: Char[until TERMINATOR]

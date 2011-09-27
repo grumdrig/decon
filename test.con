@@ -1,15 +1,23 @@
+#abcdefghijklmnopqrstuvwxyz
+#ABCDEFGHIJKLMNOPQRSTUVWXYZ
+#[one][two][three]OK
+
 import "standard.con"
 
-Test = {
-  f1 "impor" Char[5]
+Test: {
+  f1 "#abcd" Char[5]
   Char[5]
   f2 Char[10]
   nada {
-    b Char.boolean
-    n Char.null.size 0
-  }[3]
-  f3 Char[through "]"]
-  f4 Byte[before ']']
+    b Bool
+    n Null
+  }[2]
+  Char[through "["]
+  one Char[before ']']
+  apple Char[2]
+  two Byte[through 'o']
   f5 Char
+  "[three]" Char[7]  # TODO auto-determine type
+  ok "OK" Char[2]
   Char[]
 }
