@@ -63,13 +63,12 @@ function TokenMatcher(input) {
                        +  "([\\r\\n])"             // 3.   \n
                        +  "|\"(.*)\""              // 4.   quoted
                        +  "|'(.*)'"                // 5.   single-quoted
-                       +  "|([_a-z]\\w*)"          // 6.   lcid
-                       +  "|([A-Z]\\w*)"           // 7.   ucid
-                       +  "|0[xX]([0-9a-fA-F]+)"   // 8.   hex constant
-                       +  "|("+intRegex+")"        // 9.   numerical constant
-                       +  "|("+punctRegex+")"      // 10.  punctuation
-                       +  "|($)"                   // 11.  EOF
-                       +  "|(.)"                   // 12.  illegal
+                       +  "|([_a-zA-Z]\\w*)"       // 6.   identifier
+                       +  "|0[xX]([0-9a-fA-F]+)"   // 7.   hex constant
+                       +  "|("+intRegex+")"        // 8.   numerical constant
+                       +  "|("+punctRegex+")"      // 9.   punctuation
+                       +  "|($)"                   // 10.  EOF
+                       +  "|(.)"                   // 11.  illegal
                        +")");                      //    ) 
 
   this.find = function () {
@@ -98,13 +97,12 @@ var T = {
   NEWLINE      : 3,
   QUOTED       : 4,
   SINGLEQUOTED : 5,
-  LCID         : 6,
-  UCID         : 7,
-  HEXNUMBER    : 8,
-  NUMBER       : 9,
-  PUNCTUATION  : 10,
-  EOF          : 11,
-  ILLEGAL      : 12
+  IDENTIFIER   : 6,
+  HEXNUMBER    : 7,
+  NUMBER       : 8,
+  PUNCTUATION  : 9,
+  EOF          : 10,
+  ILLEGAL      : 11
 };
 
 // Reverse-lookup of token types
@@ -136,10 +134,10 @@ function testMatch(input, expected) {
   }
 }
 
-function testParseNumeric(input, expected) {
+function testParseValue(input, expected) {
   try {
     var p = new DeconParser(input);
-    var d = p.parseNumeric();
+    var d = p.parseValue();
   } catch (e) {
     if (e instanceof SyntaxError)
       console.error("Numeric test parse error ["+e.problem+"] '" + input + "'");
@@ -165,8 +163,8 @@ function runTests() {
   assert(isnull(null));
   assert(isnull(undefined));
 
-  testMatch("lcid", [ T.LCID ]);
-  testMatch("UcId", [ T.UCID ]);
+  testMatch("lcid", [ T.IDENTIFIER ]);
+  testMatch("UcId", [ T.IDENTIFIER ]);
   testMatch("6", [ T.NUMBER ]);
   testMatch(".", [ T.PUNCTUATION ]);
   testMatch("\"la la la\"", [ T.QUOTED ]);
@@ -179,29 +177,27 @@ function runTests() {
   testMatch(" { } ", [ T.PUNCTUATION, T.PUNCTUATION ]);
   testMatch(" <> ", [ T.ILLEGAL, T.ILLEGAL ]);
   
-  testParseNumeric("0", 0);
-  testParseNumeric("6", 6);
-  testParseNumeric("3", 3);
-  testParseNumeric("2*3", 2*3);
-  testParseNumeric("3*2", 3*2);
-  testParseNumeric("-2*3/26", -2*3/26);
-  testParseNumeric("0x20", 32);
-  testParseNumeric("' '", 32);
+  testParseValue("0", 0);
+  testParseValue("6", 6);
+  testParseValue("3", 3);
+  testParseValue("2*3", 2*3);
+  testParseValue("3*2", 3*2);
+  testParseValue("-2*3/26", -2*3/26);
+  testParseValue("0x20", 32);
+  testParseValue("' '", 32);
   
   console.error("PASS");
 }
 
+
 var TYPES = {};
-var Byte = new AtomicType({});
-var Char = new AtomicType({base: 256});
-var Bool = new AtomicType({base: 2});
-var Null = new AtomicType({base: 0, size: 0});
-var Int = new ModifiedType("size", 32, new ModifiedType("signed", true, Byte));
-TYPES["Byte"] = Byte;
-TYPES["Char"] = Char;
-TYPES["Bool"] = Bool;
-TYPES["Null"] = Null;
-TYPES["Int"] = Int;
+TYPES["Byte"] = new AtomicType({});
+TYPES["Char"] = new AtomicType({base: 256});
+TYPES["Bool"] = new AtomicType({base: 2});
+TYPES["Null"] = new AtomicType({base: 0, size: 0});
+TYPES["Int"] = new ModifiedType("size", 32, 
+                                new ModifiedType("signed", makeValue(true), 
+                                                 new ReferenceType("Byte")));
   
 var CONSTANTS = {};
 
@@ -268,8 +264,7 @@ function DeconParser(text) {
     if (!is(literal)) {
       return false;
     } else {
-      advance();
-      return true;
+      return take(literal);
     }
   }
 
@@ -291,20 +286,20 @@ function DeconParser(text) {
         // import
         var filename = take(T.QUOTED);
         parseFile(filename);
-      } else if (is(T.UCID)) {
-        // Type def
-        var name = take(T.UCID);
-        take(":");
-        var type = parseType();
-        TYPES[name] = type;
       } else {
-        // Constant def
-        var name = take(T.LCID);
-        take("=");
-        var literal = parseLiteral();
-        var type = tryToParseType();
-        if (!isnull(type)) literal.type = type;
-        CONSTANTS[name] = literal;
+        var name = take(T.IDENTIFIER);
+        if (tryToTake(":")) {
+          // Type def
+          var type = parseType();
+          TYPES[name] = type;
+        } else {
+          // Constant def
+          take("=");
+          var literal = parseValue();
+          var type = tryToParseType();
+          if (!isnull(type)) literal.type = type;
+          CONSTANTS[name] = literal;
+        }
       }
       
       if (!is(T.EOF)) takeNewlines();
@@ -319,23 +314,24 @@ function DeconParser(text) {
 
   function tryToParseType() {
     if (tryToTake("unsigned")) {
-      return new ModifiedType("signed", false, parseType());
+      return new ModifiedType("signed", makeValue(false), parseType());
     } else if (tryToTake("signed")) {
-      return new ModifiedType("signed", true, parseType());
+      return new ModifiedType("signed", makeValue(true), parseType());
     } else if (tryToTake("size")) {
-      return new ModifiedType("size", parseNumeric(), parseType());
+      return new ModifiedType("size", parseValue(), parseType());
     } else if (tryToTake("bigendian")) {
-      return new ModifiedType("bigendian", true, parseType());
+      return new ModifiedType("bigendian", makeValue(true), parseType());
     } else if (tryToTake("littleendian")) {
-      return new ModifiedType("bigendian", false, parseType());
+      return new ModifiedType("bigendian", makeValue(false), parseType());
     } 
 
     if (tryToTake("{")) {
       // Struct
       var s = new StructType();
       for (maybeTakeNewlines(); !tryToTake("}"); ) {
-        var fieldname = (is(T.LCID)) ? take(T.LCID) : null;
-        var fieldvalue = tryToParseLiteral();
+        var fieldname = tryToTake(T.IDENTIFIER);
+        if (fieldname === "_") fieldname = null;
+        var fieldvalue = tryToParseValue(true);
         var fieldtype = tryToParseType();
         if (!isnull(fieldvalue)) {
           if (isnull(fieldtype))
@@ -349,24 +345,24 @@ function DeconParser(text) {
         takeNewlines();
       }
       var result = s;
-    } else if (is(T.UCID)) {
+    } else if (is(T.IDENTIFIER)) {
       // Reference named type
-      var result = new ReferenceType(take(T.UCID));
+      var result = new ReferenceType(take(T.IDENTIFIER));
     } else {
       return;
     }
 
     while (tryToTake(".")) {
       if (tryToTake("unsigned")) {
-        result = new ModifiedType("signed", false, result);
+        result = new ModifiedType("signed", makeValue(false), result);
       } else if (tryToTake("signed")) {
-        result = new ModifiedType("signed", true, result);
+        result = new ModifiedType("signed", makeValue(true), result);
       } else if (tryToTake("size")) {
-        result = new ModifiedType("size", parseNumeric(), result);
+        result = new ModifiedType("size", parseValue(), result);
       } else if (tryToTake("bigendian")) {
-        result = new ModifiedType("bigendian", true, result);
+        result = new ModifiedType("bigendian", makeValue(true), result);
       } else if (tryToTake("littleendian")) {
-        result = new ModifiedType("bigendian", false, result);
+        result = new ModifiedType("bigendian", makeValue(false), result);
       } else {
         throw new SyntaxError("Invalid type modifier");
       }
@@ -375,13 +371,13 @@ function DeconParser(text) {
     while (tryToTake("[")) {
       result = new ArrayType(result);
       if (tryToTake("until")) {
-        result.until = parseLiteral();
+        result.until = parseValue();
       } else if (tryToTake("through")) {
-        result.through = parseLiteral();
+        result.through = parseValue();
       } else if (tryToTake("before")) {
-        result.before = parseLiteral();
+        result.before = parseValue();
       } else {
-        result.length = tryToParseLiteral();
+        result.length = tryToParseValue();
       }
       take("]");
     }
@@ -389,28 +385,44 @@ function DeconParser(text) {
   }
                              
 
-  var parseNumeric = this.parseNumeric = function () {
-    var r = tryToParseNumeric();
+  var parseValue = this.parseValue = function (infield) {
+    var r = tryToParseValue(infield);
     if (isnull(r))
       throw new SyntaxError("Numeric value expected");
     return r;
   }
 
-  function tryToParseNumeric() {
+  function tryToParseValue(infield) {
     var result;
     if (is(T.NUMBER)) {
-      result = parseInt(take());
+      result = makeValue(parseInt(take()));
     } else if (is(T.HEXNUMBER)) {
-      result = parseInt(take(T.HEXNUMBER), 16);
+      var hex = take(T.HEXNUMBER);
+      result = new Value(parseInt(hex, 16),
+                         new ModifiedType("size",
+                                          makeValue(4 * hex.length), 
+                                          new ReferenceType("Int")));
     } else if (is(T.SINGLEQUOTED)) {
       // TODO: deal with endianness and type-specifying and all that
-      var s = take(T.SINGLEQUOTED);
-      result = 0;
-      for (var i = 0; i < s.length; ++i) {
-        result = (result << 8) + (0xFF & s.charCodeAt(i));
-      }
+      var s = JSON.parse('"' + take(T.SINGLEQUOTED) + '"');
+      var value = 0;
+      for (var i = 0; i < s.length; ++i)
+        value = (value << 8) + (0xFF & s.charCodeAt(i));
+      result = new Value(value, new ModifiedType("size", 
+                                                 makeValue(8 * s.length),
+                                                 new ReferenceType("Int")));
+    } else if (is(T.QUOTED)) {
+      var value = JSON.parse('"' + take(T.QUOTED) + '"');
+      result = new Value(value, new ArrayType(new ReferenceType("Char"), 
+                                              makeValue(value.length)));
+    } else if (!infield && is(T.IDENTIFIER)) {
+      var name = take(T.IDENTIFIER);
+      // TODO: keep a reference instead
+      result = CONSTANTS[name];
+      if (isnull(result)) 
+        throw new SyntaxError("Undefined constant <" + name + ">");
     } else if (tryToTake("(")) {
-      result = parseNumeric();
+      result = parseValue();
       take(")");
     } else {
       return null;
@@ -418,41 +430,18 @@ function DeconParser(text) {
     
     // TODO: rewrite left-associatively
     if (tryToTake("/")) {
-      result /= parseNumeric();
+      result /= parseValue();
     } else if (tryToTake("*")) {
-      result *= parseNumeric();
+      result *= parseValue();
     } else if (tryToTake("+")) {
-      result += parseNumeric();
+      result += parseValue();
     } else if (tryToTake("-")) {
-      result -= parseNumeric();
+      result -= parseValue();
     }
 
     return result;
   }
 
-  function parseLiteral() {
-    var literal = tryToParseLiteral();
-    if (isnull(literal)) throw new SyntaxError("Literal value expected");
-    return literal;
-  }
-
-  function tryToParseLiteral() {
-    if (is(T.QUOTED)) {
-      result = { value: JSON.parse('"' + take(T.QUOTED) + '"') };
-      result.type = new ArrayType(Char, { value: result.value.length, type:Int});
-      return result;
-    } else if (is(T.LCID)) {
-      var v = CONSTANTS[take(T.LCID)];
-      if (isnull(v)) throw new SyntaxError("Undefined constant: " + name);
-      return v;
-    } else {
-      var n = tryToParseNumeric();
-      if (isnull(n)) return;
-      // TODO: infer int size better
-      return { value: n, type: new ReferenceType("Int") };
-    }
-  }
-      
 }
 
 
@@ -499,7 +488,8 @@ function main() {
     console.error("MAIN:");
     console.error("" + Main);
 
-    var tree = Main.deconstructFile(args[a++] || '/dev/stdin');
+    // TODO make a command line flag for "wholefile"
+    var tree = Main.deconstructFile(args[a++] || '/dev/stdin', true);
   } catch (de) {
     if (de instanceof DeconError) {
       // TODO print some more context
@@ -601,11 +591,11 @@ function Context(buffer) {
 function Type() {
   this.dereference = function (context) { return this; }
 
-  this.deconstructFile = function (filename) {
+  this.deconstructFile = function (filename, wholefile) {
     var inbuf = fs.readFileSync(filename);
     var context = new Context(inbuf);
     var result = this.deconstruct(context);
-    if (!context.eof())
+    if (wholefile && !context.eof())
       throw new DeconError("Unconsumed data at end of file", context);
     return result;
   }
@@ -667,10 +657,14 @@ function ArrayType(element, optLen) {
 
   this.toString = function (context) {
     return ("" + this.element.toString(context) + "[" + 
-            (!isnull(this.until)  ? "until " + inspect(this.until.value) : "") + 
-            (!isnull(this.through)? "through "+inspect(this.through.value):"") + 
-            (!isnull(this.before) ? "before " +inspect(this.before.value) :"") + 
-            (!isnull(this.length) ? inspect(this.length.value) : "") + 
+            (isnull(this.until)  ? "" :
+             "until " + this.until.toString(context)) + 
+            (isnull(this.through)? "" :
+             "through "+ this.through.toString(context)) + 
+            (isnull(this.before) ? "" : 
+             "before " + this.before.toString(context)) +
+            (isnull(this.length) ? "" : 
+             this.length.toString(context)) +
             "]");
   }
 
@@ -713,13 +707,13 @@ function ArrayType(element, optLen) {
 
 
 function AtomicType(basis) {
-  this.basis = basis;
-
   function attr(context, key, defvalue) {
     if (!isnull(basis[key])) return basis[key];
     if (!isnull(context)) {
-      if (!isnull(context.modifiers[key])) return context.modifiers[key];
-      if (!isnull(context.defaults[key])) return context.defaults[key];
+      if (!isnull(context.modifiers[key])) 
+        return context.modifiers[key].toString();
+      if (!isnull(context.defaults[key])) 
+        return context.defaults[key].toString();
     }
     return defvalue;
   }
@@ -874,6 +868,30 @@ function StructType() {
     return (context.value = result);
   }
 }
+
+
+function Value(value, type) {
+  this.value = value;
+  this.type = type;
+
+  this.toString = function (context) {
+    return inspect(this.value);
+  }
+}
+
+function makeValue(value) {
+  if (isnull(value))
+    return new Value(value, new ReferenceType("Null"));
+  else if (typeof value == typeof true)
+    return new Value(value, new ReferenceType("Bool"));
+  else if (typeof value == typeof 1)
+    return new Value(value, new ReferenceType("Int"));
+  else if (typeof value == typeof "")
+    return new Value(value, new ReferenceType("Char")); // dubious, but not used
+  else 
+    throw new Error("Internal Error: Invalid parameter to makeValue");
+}
+
 
 if (require.main === module) {
   runTests();

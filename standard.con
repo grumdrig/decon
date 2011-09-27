@@ -1,9 +1,10 @@
-Int: Byte.signed.size(32)
-UInt: Byte.unsigned.size(32)
-
 Int8: Int.size 8
 Int16: Int.size 16
 Int32: Int.size 32
+
+Alias: size 16 Char
+
+UInt: Byte.unsigned.size(32)
 
 UInt8: UInt.size 8
 UInt16: UInt.size 16

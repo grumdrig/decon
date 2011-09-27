@@ -15,25 +15,25 @@ TString: Char[through terminator]
 
 Test: {
   f1 "#abcd" Char[5]
-  Char[5]
+  _ Char[5]
   f2 Char[10]
   nada {
     b Bool
     n Null
   }[2]
    
-  Char[before 'L']
+  _ Char[before 'L']
   "LMNOP"
   q Char
   totee "RST" TString
 
-  Byte[before '1']
+  _ Byte[before '1']
   little Little
   big Big
 
-  egg Char["drop"]  
+  # egg Char["drop"]  
 
-  Char[through "["]
+  _ Char[through "["]
   one Char[before ']']
   apple Char[2]
   two Byte[through 'o']
@@ -42,5 +42,5 @@ Test: {
   ok "OK"
 
   # Ignore the tail
-  Char[]
+  _ Char[]
 }
