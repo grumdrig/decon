@@ -336,7 +336,8 @@ function DeconParser(text) {
         if (isnull(fieldtype))
           throw new SyntaxError("Expected type in field specification");
         s.addField(fieldname, fieldvalue, fieldtype);
-        maybeTakeNewlines();
+        if (tryToTake("}")) break;  // Allow closing brace w/o newline
+        takeNewlines();
       }
       var result = s;
     } else if (is(T.UCID)) {
