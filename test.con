@@ -1,8 +1,14 @@
 #abcdefghijklmnopqrstuvwxyz
 #ABCDEFGHIJKLMNOPQRSTUVWXYZ
+#19191919191919191919191919
 #[one][two][three]OK
 
 import "standard.con"
+
+Word: signed size 16 Byte
+
+Big: bigendian { word Word }
+Little: littleendian { word Word }
 
 Test: {
   f1 "#abcd" Char[5]
@@ -12,12 +18,22 @@ Test: {
     b Bool
     n Null
   }[2]
+   
+  Char[before 'L']
+  "LMNOP"
+  q Char
+
+  Byte[before '1']
+  little Little
+  big Big
+  
+
   Char[through "["]
   one Char[before ']']
   apple Char[2]
   two Byte[through 'o']
   f5 Char
-  "[three]" Char[7]  # TODO auto-determine type
-  ok "OK" Char[2]
+  "[three]"
+  ok "OK"
   Char[]
 }

@@ -7,6 +7,7 @@
 // TODO: back-references and indices on arrays
 
 var fs = require("fs");
+var inspect = require("util").inspect;
 
 // Syntax error during .con file parsing
 function ParseError(problem) {
@@ -178,6 +179,7 @@ function runTests() {
   testMatch(" { } ", [ T.PUNCTUATION, T.PUNCTUATION ]);
   testMatch(" <> ", [ T.ILLEGAL, T.ILLEGAL ]);
   
+  testParseNumeric("0", 0);
   testParseNumeric("6", 6);
   testParseNumeric("3", 3);
   testParseNumeric("2*3", 2*3);
@@ -196,11 +198,12 @@ var Byte = new NumericType({});
 var Char = new NumericType({base: 256});
 var Bool = new NumericType({base: 2});
 var Null = new NumericType({base: 0, size: 0});
+var Int = new ModifiedType("size", 32, new ModifiedType("signed", true, Byte));
 TYPES["Byte"] = Byte;
 TYPES["Char"] = Char;
 TYPES["Bool"] = Bool;
 TYPES["Null"] = Null;
-
+TYPES["Int"] = Int;
   
 function DeconParser(text) {
 
@@ -325,8 +328,13 @@ function DeconParser(text) {
         var fieldname = (is(T.LCID)) ? take(T.LCID) : null;
         var fieldvalue = tryToParseLiteral();
         var fieldtype = tryToParseType();
-        if (isnull(fieldname) && isnull(fieldvalue) && isnull(fieldtype))
-          throw new SyntaxError("Expected field specification");
+        if (!isnull(fieldvalue)) {
+          if (isnull(fieldtype))
+            fieldtype = fieldvalue.type;  // Infer type from literal's type
+          fieldvalue = fieldvalue.value;
+        }
+        if (isnull(fieldtype))
+          throw new SyntaxError("Expected type in field specification");
         s.addField(fieldname, fieldvalue, fieldtype);
         maybeTakeNewlines();
       }
@@ -420,9 +428,14 @@ function DeconParser(text) {
 
   function tryToParseLiteral() {
     if (is(T.QUOTED)) {
-      return JSON.parse('"' + take(T.QUOTED) + '"');
+      result = { value: JSON.parse('"' + take(T.QUOTED) + '"') };
+      result.type = new ArrayType(Char, result.value.length);
+      return result;
     } else {
-      return tryToParseNumeric();
+      var n = tryToParseNumeric();
+      if (isnull(n)) return;
+      // TODO: infer int size better
+      return { value: n, type: new ReferenceType("Int") };
     }
   }
       
@@ -632,29 +645,28 @@ function ReferenceType(name) {
 
 
 
-function ArrayType(element) {
+function ArrayType(element, optLen) {
 
   this.element = element;
+  if (!isnull(optLen)) this.length = optLen;
 
   this.toString = function (context) {
-    var inspect = require("util").inspect;
     return ("" + this.element.toString(context) + "[" + 
-            (!isnull(this.until) ? "until " + inspect(this.until) : "") + 
-            (!isnull(this.through) ? "through " + inspect(this.through) : "") + 
-            (!isnull(this.before) ? "before " + inspect(this.before) : "") + 
+            (!isnull(this.until)  ? "until " + inspect(this.until.value) : "") + 
+            (!isnull(this.through)? "through "+inspect(this.through.value):"") + 
+            (!isnull(this.before) ? "before " +inspect(this.before.value) :"") + 
             (!isnull(this.length) ? this.length : "") + 
             "]");
   }
 
   function equals(terminator, value) {
     if (isnull(terminator)) return false;
-    if (typeof terminator != typeof value) {
-      if (typeof terminator == typeof 1) 
-        terminator = String.fromCharCode(terminator);
-      if (typeof value == typeof 1) 
-        value = String.fromCharCode(value);
+    var term = terminator.value;
+    if (typeof term != typeof value) {
+      if (typeof term == typeof 1)  term = String.fromCharCode(term);
+      if (typeof value == typeof 1) value = String.fromCharCode(value);
     }
-    return value === terminator;
+    return value === term;
   }
 
   this.deconstruct = function (context) {
@@ -805,7 +817,7 @@ function StructType() {
   function pushScope(context) {
     var state = [context.defaults, context.modifiers];
     for (var k in context.modifiers) 
-      if (context.modifiers.hasOwnAttribute(k))
+      if (context.modifiers.hasOwnProperty(k))
         context.defaults[k] = context.modifiers[k];
     context.modifiers = {}
     return state;
@@ -833,8 +845,8 @@ function StructType() {
       var field = fields[i];
       var value = field.type.deconstruct(context);
       if (!isnull(field.value) && value !== field.value)
-        throw new DeconError("Non-matching value: " + value + " expected: " + 
-                             field.value, context);
+        throw new DeconError("Non-matching value: " + inspect(value) + 
+                             " expected: " + field.value, context);
       if (!isnull(field.name))
         result[field.name] = value;
     }
