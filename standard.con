@@ -1,11 +1,9 @@
-Int8: Int.size 8
-Int16: Int.size 16
-Int32: Int.size 32
+int8: int.size 8
+int16: int.size 16
+int32: int.size 32
 
-Alias: size 16 Char
+uint: byte.unsigned.size(32)
 
-UInt: Byte.unsigned.size(32)
-
-UInt8: UInt.size 8
-UInt16: UInt.size 16
-UInt32: UInt.size 32
+uint8: uint.size 8
+uint16: uint.size 16
+uint32: uint.size 32

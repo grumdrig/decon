@@ -191,13 +191,13 @@ function runTests() {
 
 
 var TYPES = {};
-TYPES["Byte"] = new AtomicType({});
-TYPES["Char"] = new AtomicType({base: 256});
-TYPES["Bool"] = new AtomicType({base: 2});
-TYPES["Null"] = new AtomicType({base: 0, size: 0});
-TYPES["Int"] = new ModifiedType("size", 32, 
+TYPES["byte"] = new AtomicType({});
+TYPES["char"] = new AtomicType({base: 256});
+TYPES["bool"] = new AtomicType({base: 2});
+TYPES["null"] = new AtomicType({base: 0, size: 0});
+TYPES["int"] = new ModifiedType("size", 32, 
                                 new ModifiedType("signed", makeValue(true), 
-                                                 new ReferenceType("Byte")));
+                                                 new ReferenceType("byte")));
   
 var CONSTANTS = {};
 
@@ -401,7 +401,7 @@ function DeconParser(text) {
       result = new Value(parseInt(hex, 16),
                          new ModifiedType("size",
                                           makeValue(4 * hex.length), 
-                                          new ReferenceType("Int")));
+                                          new ReferenceType("int")));
     } else if (is(T.SINGLEQUOTED)) {
       // TODO: deal with endianness and type-specifying and all that
       var s = JSON.parse('"' + take(T.SINGLEQUOTED) + '"');
@@ -410,10 +410,10 @@ function DeconParser(text) {
         value = (value << 8) + (0xFF & s.charCodeAt(i));
       result = new Value(value, new ModifiedType("size", 
                                                  makeValue(8 * s.length),
-                                                 new ReferenceType("Int")));
+                                                 new ReferenceType("int")));
     } else if (is(T.QUOTED)) {
       var value = JSON.parse('"' + take(T.QUOTED) + '"');
-      result = new Value(value, new ArrayType(new ReferenceType("Char"), 
+      result = new Value(value, new ArrayType(new ReferenceType("char"), 
                                               makeValue(value.length)));
     } else if (!infield && is(T.IDENTIFIER)) {
       var name = take(T.IDENTIFIER);
@@ -881,13 +881,13 @@ function Value(value, type) {
 
 function makeValue(value) {
   if (isnull(value))
-    return new Value(value, new ReferenceType("Null"));
+    return new Value(value, new ReferenceType("null"));
   else if (typeof value == typeof true)
-    return new Value(value, new ReferenceType("Bool"));
+    return new Value(value, new ReferenceType("bool"));
   else if (typeof value == typeof 1)
-    return new Value(value, new ReferenceType("Int"));
+    return new Value(value, new ReferenceType("int"));
   else if (typeof value == typeof "")
-    return new Value(value, new ReferenceType("Char")); // dubious, but not used
+    return new Value(value, new ReferenceType("char")); // dubious, but not used
   else 
     throw new Error("Internal Error: Invalid parameter to makeValue");
 }
