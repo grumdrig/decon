@@ -7,40 +7,40 @@ import "standard.con"
 
 Word: signed size 16 byte
 
-Big: bigendian { word Word }
-Little: littleendian { word Word }
+Big: bigendian { Word word }
+Little: littleendian { Word word }
 
 terminator = 'T' char
 TString: char[through terminator]
 
 Test: {
-  f1 "#abcd" char[5]
-  _ char[5]
-  f2 char[10]
-  nada {
-    b bool
-    n null
-  }[2]
+  char[5] "#abcd" f1
+  char[5]
+  char[10] f2
+  {
+    bool bool
+    null null
+  }[2] nada
    
-  _ char[before 'L']
+  char[before 'L']
   "LMNOP"
-  q char
-  totee "RST" TString
+  char Q
+  TString "RST" totee
 
-  _ byte[before '1']
-  little Little
-  big Big
+  byte[before '1']
+  Little little
+  Big big
 
-  # egg char["drop"]  
+  # char["drop"]  
 
-  _ char[through "["]
-  one char[before ']']
-  apple char[2]
-  two byte[through 'o']
-  f5 char
+  char[through "["]
+  char[before ']']  one
+  char[2] apple
+  byte[through 'o'] two
+  char closebracket
   "[three]"
-  ok "OK"
+  "OK" ok
 
   # Ignore the tail
-  _ char[]
+  char[]
 }

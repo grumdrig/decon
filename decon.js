@@ -261,11 +261,7 @@ function DeconParser(text) {
 
 
   function tryToTake(literal) {
-    if (!is(literal)) {
-      return false;
-    } else {
-      return take(literal);
-    }
+    return (is(literal)) ? take(literal) : null;
   }
 
 
@@ -329,10 +325,9 @@ function DeconParser(text) {
       // Struct
       var s = new StructType();
       for (maybeTakeNewlines(); !tryToTake("}"); ) {
-        var fieldname = tryToTake(T.IDENTIFIER);
-        if (fieldname === "_") fieldname = null;
-        var fieldvalue = tryToParseValue(true);
         var fieldtype = tryToParseType();
+        var fieldvalue = tryToParseValue(true);
+        var fieldname = tryToTake(T.IDENTIFIER);
         if (!isnull(fieldvalue)) {
           if (isnull(fieldtype))
             fieldtype = fieldvalue.type;  // Infer type from literal's type
@@ -775,35 +770,38 @@ function ModifiedType(key, value, underlying) {
   this.underlying = underlying;
 
   this.isAscii = function (context) {
-    if (isnull(context)) context = { modifiers: {}, defaults: {} };
-    var formervalue = context.modifiers[this.key];
-    context.modifiers[this.key] = this.value;
-
-    var result = this.underlying.isAscii(context);
-
-    context.modifiers[this.key] = formervalue;
-    return result;
+    // Base doesn't get modified (TODO: should get rid of that base shit anyway)
+    return this.underlying.isAscii(context);
   }
 
   this.toString = function (context) {
     if (isnull(context)) context = { modifiers: {}, defaults: {} };
-    var formervalue = context.modifiers[this.key];
-    context.modifiers[this.key] = this.value;
 
-    var result = this.underlying.toString(context);
-
-    context.modifiers[this.key] = formervalue;
-    return result;
+    if (!isnull(context.modifiers[this.key])) {
+      return this.underlying.toString(context);
+    } else {
+      var formervalue = context.modifiers[this.key];
+      context.modifiers[this.key] = this.value;
+      
+      var result = this.underlying.toString(context);
+      
+      context.modifiers[this.key] = formervalue;
+      return result;
+    }
   }
 
   this.deconstruct = function (context) {
-    var formervalue = context.modifiers[this.key];
-    context.modifiers[this.key] = this.value;
-
-    var result = this.underlying.deconstruct(context);
-
-    context.modifiers[this.key] = formervalue;
-    return result;
+    if (!isnull(context.modifiers[this.key])) {
+      return this.underlying.deconstruct(context);
+    } else {
+      var formervalue = context.modifiers[this.key];
+      context.modifiers[this.key] = this.value;
+      
+      var result = this.underlying.deconstruct(context);
+      
+      context.modifiers[this.key] = formervalue;
+      return result;
+    }
   }
 }
 
