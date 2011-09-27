@@ -6,7 +6,7 @@ Test = {
   f2 Char[10]
   nada {
     b Char.boolean
-    n Char.null
+    n Char.null.size 0
   }[3]
   f3 Char[through "]"]
   f4 Byte[before ']']

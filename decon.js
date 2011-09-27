@@ -50,7 +50,7 @@ var fpRegex =
 
 var intRegex = "[+-]?[0-9]+";
 //var punctRegex = "[-!#$%&()\\*\\+,\\./:;<=>?@\\[\\\\]^_`{|}~]";
-var punctRegex = "[-\\.*/+={}\\[\\]()]";
+var punctRegex = "[-\\.*/+={}\\[\\]():]";
                 
 
 function TokenMatcher(input) {
@@ -192,13 +192,14 @@ function runTests() {
 
 // TODO: get this into some scope somewhere, not global, please!
 var TYPES = {};
-// One predefined type
-var Int = new NumericType({
-    signed: true,
-    size: 32,
-    bigendian: false,
-    base:  10});
-TYPES["Int"] = Int;
+var Byte = new NumericType({});
+var Char = new NumericType({base: 256});
+var Bool = new NumericType({base: 2});
+var Null = new NumericType({base: 0, size: 0});
+TYPES["Byte"] = Byte;
+TYPES["Char"] = Char;
+TYPES["Bool"] = Bool;
+TYPES["Null"] = Null;
 
 function dereferenceType(t) {
   for (; t instanceof ReferenceType;) {
@@ -299,7 +300,7 @@ function DeconParser(text) {
       } else {
         // Type def
         var name = take(T.UCID);
-        take("=");
+        take(T.PUNCTUATION);  // TODO: get more specific...
         var type = parseType();
         TYPES[name] = type;
       }
@@ -310,11 +311,23 @@ function DeconParser(text) {
 
   function parseType() {
     var type = tryToParseType();
-    if (isnull(type)) throw new SyntaxError("Type expected");
+    if (isnull(type)) throw new ParseError("Type expected");
     return type;
   }
 
   function tryToParseType() {
+    if (tryToTake("unsigned")) {
+      return new ModifiedType("signed", false, parseType());
+    } else if (tryToTake("signed")) {
+      return new ModifiedType("signed", true, parseType());
+    } else if (tryToTake("size")) {
+      return new ModifiedType("size", parseNumeric(), parseType());
+    } else if (tryToTake("bigendian")) {
+      return new ModifiedType("bigendian", true, parseType());
+    } else if (tryToTake("littleendian")) {
+      return new ModifiedType("bigendian", false, parseType());
+    } 
+
     if (tryToTake("{")) {
       // Struct
       var s = new StructType();
@@ -336,36 +349,19 @@ function DeconParser(text) {
     }
 
     while (tryToTake(".")) {
-      // TODO: hold the reference so that the underlying type can be changed to
-      // affect all descendants (endianness is what I'm thinking about here,
-      // but that also allows forward references)
-      result = dereferenceType(result);
-      //if (!(result instanceof NumericType))
-      //  throw new ParseError("Numeric type expected; got " + result.prototype);
-      var nt = new NumericType(result);
-      var modifier = take(T.LCID);
-      if (modifier === "signed") {
-        nt.signed = true;
-      } else if (modifier === "unsigned") {
-        nt.signed = false;
-      } else if (modifier === "size") {
-        nt.size = parseNumeric();
-      } else if (modifier === "bigendian") {
-        nt.bigendian = true;
-      } else if (modifier === "littleendian") {
-        nt.bigendian = false;
-      } else if (modifier === "null") {
-        nt.base = 0;
-      } else if (modifier === "numeric") {
-        nt.base = 10;
-      } else if (modifier === "boolean") {
-        nt.base = 2;
-      } else if (modifier === "ascii") {
-        nt.base = 256;
+      if (tryToTake("unsigned")) {
+        result = new ModifiedType("signed", false, result);
+      } else if (tryToTake("signed")) {
+        result = new ModifiedType("signed", true, reuslt);
+      } else if (tryToTake("size")) {
+        result = new ModifiedType("size", parseNumeric(), result);
+      } else if (tryToTake("bigendian")) {
+        result = new ModifiedType("bigendian", true, result);
+      } else if (tryToTake("littleendian")) {
+        result = new ModifiedType("bigendian", false, result);
       } else {
-        throw new ParseError("Unknown type modifier");
+        throw new ParseError("Invalid type modifier");
       }
-      result = nt;
     }
         
     while (tryToTake("[")) {
@@ -434,7 +430,7 @@ function DeconParser(text) {
 
   function tryToParseLiteral() {
     if (is(T.QUOTED)) {
-      return take(T.QUOTED);
+      return JSON.parse('"' + take(T.QUOTED) + '"');
     } else {
       return tryToParseNumeric();
     }
@@ -482,7 +478,7 @@ function main() {
       console.error(k + ": " + TYPES[k]);
 
   console.error("MAIN:");
-  console.error(""+Main);
+  console.error("" + Main);
 
   try {
     var tree = Main.deconstructFile(args[a++] || '/dev/stdin');
@@ -562,6 +558,8 @@ var parse = exports.parse = function (string) {
 function Context(buffer) {
   this.bitten = 0;
   this.value = null;
+  this.modifiers = {};
+  this.defaults = {};
 
   this.bite = function () {
     return buffer[this.bitten++];
@@ -593,6 +591,8 @@ function Type() {
       throw new DeconError("Unconsumed data at end of file", context);
     return result;
   }
+
+  this.isAscii = function (context) { return false; }
 }
 
 Type.sire = function (Child) {
@@ -607,6 +607,7 @@ Type.sire = function (Child) {
 Type.sire(ReferenceType);
 Type.sire(ArrayType);
 Type.sire(NumericType);
+Type.sire(ModifiedType);
 Type.sire(StructType);
 
 
@@ -621,12 +622,12 @@ function ReferenceType(name) {
     return result;
   }
 
-  this.toString = function () {
+  this.toString = function (context) {
     var t = this.dereference();
     if (isnull(t))
       return name + ":???";
     else
-      return t.toString();
+      return t.toString(context);
   }
 
   this.deconstruct = function(context) {
@@ -635,6 +636,11 @@ function ReferenceType(name) {
       throw new DeconError("Undefined type " + name, context);
     return t.deconstruct(context);
   }
+
+  this.isAscii = function (context) {
+    var t = this.dereference();
+    return isnull(t) ? false : t.isAscii(context);
+  }    
 }
 
 
@@ -643,9 +649,9 @@ function ArrayType(element) {
 
   this.element = element;
 
-  this.toString = function () {
+  this.toString = function (context) {
     var inspect = require("util").inspect;
-    return ("" + this.element + "[" + 
+    return ("" + this.element.toString(context) + "[" + 
             (!isnull(this.until) ? "until " + inspect(this.until) : "") + 
             (!isnull(this.through) ? "through " + inspect(this.through) : "") + 
             (!isnull(this.before) ? "before " + inspect(this.before) : "") + 
@@ -653,23 +659,33 @@ function ArrayType(element) {
             "]");
   }
 
+  function equals(terminator, value) {
+    if (isnull(terminator)) return false;
+    if (typeof terminator != typeof value) {
+      if (typeof terminator == typeof 1) 
+        terminator = String.fromCharCode(terminator);
+      if (typeof value == typeof 1) 
+        value = String.fromCharCode(value);
+    }
+    return value === terminator;
+  }
+
   this.deconstruct = function (context) {
     context.value = null;
     var e = element.dereference();
-    var isstr = (e.base === 256);
+    var isstr = e.isAscii(context);
     var result = isstr ? "" : [];
     for (var i = 0; ; ++i) {
+      if (context.eof()) break;
       if (!isnull(this.length) && i >= this.length) break;
-      if (!isnull(this.until)  && context.value === this.until) break;
-      if (!isnull(this.before) && context.peek() === this.before) break;
-      if (isnull(this.length)  && isnull(this.until) && isnull(this.before) && 
-          context.eof()) break;
+      if (equals(this.before, context.peek())) break;
       var v = e.deconstruct(context);
+      if (equals(this.until, context.value)) break;
       if (isstr)
         result += v;
       else
         result.push(v);
-      if (!isnull(this.through) && context.value === this.through) break;
+      if (equals(this.through, context.value)) break;
     }
     context.value = result;
     return context.value;
@@ -678,16 +694,30 @@ function ArrayType(element) {
 
 
 function NumericType(basis) {
+  this.basis = basis;
 
-  this.signed = basis.signed;
-  this.size = basis.size;
-  this.bigendian = basis.bigendian;
-  this.base = basis.base;
+  function attr(context, key, defvalue) {
+    if (!isnull(basis[key])) return basis[key];
+    if (!isnull(context)) {
+      if (!isnull(context.modifiers[key])) return context.modifiers[key];
+      if (!isnull(context.defaults[key])) return context.defaults[key];
+    }
+    return defvalue;
+  }
 
-  this.toString = function () {
-    var result = (this.signed ? "i" : "u") + this.size;
-    if (this.bigendian) result = result.toUpperCase();
-    if (this.base != 10) result += "%" + this.base;
+  function signed(context)    {  return attr(context, "signed", false);  }
+  function size(context)      {  return attr(context, "size", 8);  }
+  function bigendian(context) {  return attr(context, "bigendian", false);  }
+  function base(context)      {  return attr(context, "base", 10);  }
+
+  this.isAscii = function (context) {
+    return base(context) == 256;
+  }
+
+  this.toString = function (context) {
+    var result = (signed(context) ? "i" : "u") + size(context);
+    if (bigendian(context)) result = result.toUpperCase();
+    if (base(context) != 10) result += "%" + base(context);
     return result;
   }
 
@@ -698,24 +728,65 @@ function NumericType(basis) {
 
   this.deconstruct = function (context) {
     context.value = 0;
-    for (var i = 0; i < this.size; i += 8) {
+    for (var i = 0; i < size(context); i += 8) {
       var v = context.bite();
-      if (this.bigendian) {
-        if (this.signed && i === 0 && (v & 0x80)) v = negateByte(v);
+      if (bigendian(context)) {
+        if (signed(context) && i === 0 && (v & 0x80)) 
+          v = negateByte(v);
         context.value <<= 8;
         context.value += v;
       } else {
-        if (this.signed && i === this.size - 8 && (v & 0x80)) v = negateByte(v);
+        if (signed(context) && i === size(context) - 8 && (v & 0x80)) 
+          v = negateByte(v);
         context.value |= v << i;
       }
     }
-    if (this.base === 256) 
+    if (base(context) === 256) 
       context.value = String.fromCharCode(context.value);
-    else if (this.base === 2) 
+    else if (base(context) === 2) 
       context.value = !!context.value;
-    else if (this.base === 0)
+    else if (base(context) === 0)
       context.value = null;
     return context.value;
+  }
+}
+
+
+function ModifiedType(key, value, underlying) {
+  this.key = key;
+  this.value = value;
+  this.underlying = underlying;
+
+  this.isAscii = function (context) {
+    if (isnull(context)) context = { modifiers: {}, defaults: {} };
+    var formervalue = context.modifiers[this.key];
+    context.modifiers[this.key] = this.value;
+
+    var result = this.underlying.isAscii(context);
+
+    context.modifiers[this.key] = formervalue;
+    return result;
+  }
+
+  this.toString = function (context) {
+    if (isnull(context)) context = { modifiers: {}, defaults: {} };
+    var formervalue = context.modifiers[this.key];
+    context.modifiers[this.key] = this.value;
+
+    var result = this.underlying.toString(context);
+
+    context.modifiers[this.key] = formervalue;
+    return result;
+  }
+
+  this.deconstruct = function (context) {
+    var formervalue = context.modifiers[this.key];
+    context.modifiers[this.key] = this.value;
+
+    var result = this.underlying.deconstruct(context);
+
+    context.modifiers[this.key] = formervalue;
+    return result;
   }
 }
 
@@ -727,8 +798,10 @@ function StructType() {
     this.value = value;
     this.type = type;
 
-    this.toString = function () {
-      return name + " " + value + " " + type;
+    this.toString = function (context) {
+      return (isnull(name) ? "" : name + " ") + 
+             (isnull(value) ? "" : value + " ") + 
+             type.toString(context);
     }
   }
   
@@ -738,14 +811,32 @@ function StructType() {
     fields.push(new Field(name, value, type));
   }
 
-  this.toString = function () {
+  function pushScope(context) {
+    var state = [context.defaults, context.modifiers];
+    for (var k in context.modifiers) 
+      if (context.modifiers.hasOwnAttribute(k))
+        context.defaults[k] = context.modifiers[k];
+    context.modifiers = {}
+    return state;
+  }
+
+  function popScope(context, state) {
+    context.defaults = state[0];
+    context.modifiers = state[1];
+  }
+
+  this.toString = function (context) {
+    if (isnull(context)) context = { modifiers: {}, defaults: {} };
+    var formerstate = pushScope(context);
     var result = "{\n";
     for (var i = 0; i < fields.length; ++i) 
-      result += fields[i] + "\n";
+      result += fields[i].toString(context) + "\n";
+    popScope(context, formerstate);
     return result + "}";
   }
 
   this.deconstruct = function (context) {
+    var formerstate = pushScope(context);
     var result = {}
     for (var i = 0; i < fields.length; ++i) {
       var field = fields[i];
@@ -756,6 +847,7 @@ function StructType() {
       if (!isnull(field.name))
         result[field.name] = value;
     }
+    popScope(context, formerstate);
     return (context.value = result);
   }
 }

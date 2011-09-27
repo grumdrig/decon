@@ -1,4 +1,14 @@
-import "standard.con"
+# import "standard.con"
+
+Int8: size(8) Int
+Int16: size(16) Int
+Int32: size 32 Int
+
+UInt: unsigned Int
+
+UInt8: unsigned Int8
+UInt16: unsigned Int16
+UInt32: unsigned Int32
 
 Look: {
   offsets UInt16[0x200]
@@ -9,8 +19,8 @@ Look: {
 # This version produces finalized parse (or would if it worked)
 Look2: {
   _offset UInt16[0x200]
-  description[I] CString.at(_offset[I])[before 0x1a]
-  _ Byte[]
+  #description CString.at(_offset[tile])[tile before(0x1a)]
+  Byte[]
 }
 
 TERMINATOR = 0 Char
