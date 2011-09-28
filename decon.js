@@ -449,9 +449,12 @@ function main() {
   var args = process.argv.slice(2);
   var Main;
   var a = 0;
+  var wholefile = true;
   for (; a < args.length; ++a) {
     var arg = args[a];
-    if (arg.endsWith(".con")) {
+    if (arg === "-p") {
+      wholefile = false;
+    } else if (arg.endsWith(".con")) {
       parseFile(arg);
     } else {
       // Must be a type
@@ -483,8 +486,7 @@ function main() {
     console.error("MAIN:");
     console.error("" + Main);
 
-    // TODO make a command line flag for "wholefile"
-    var tree = Main.deconstructFile(args[a++] || '/dev/stdin', true);
+    var tree = Main.deconstructFile(args[a++] || '/dev/stdin', wholefile);
   } catch (de) {
     if (de instanceof DeconError) {
       // TODO print some more context
@@ -560,9 +562,10 @@ var parse = exports.parse = function (string) {
 
 function Context(buffer) {
   this.bitten = 0;
-  this.value = null;
+  this.result = null;
   this.modifiers = {};
   this.defaults = {};
+  this.scope = [];
 
   this.bite = function () {
     return buffer[this.bitten++];
@@ -653,13 +656,13 @@ function ArrayType(element, optLen) {
   this.toString = function (context) {
     return ("" + this.element.toString(context) + "[" + 
             (isnull(this.until)  ? "" :
-             "until " + this.until.value(context).toString()) + 
+             "until " + this.until.toString(context)) + 
             (isnull(this.through)? "" :
-             "through "+ this.through.value(context).toString()) + 
+             "through "+ this.through.toString(context)) + 
             (isnull(this.before) ? "" : 
-             "before " + this.before.value(context).toString()) +
+             "before " + this.before.toString(context)) +
             (isnull(this.length) ? "" : 
-             this.length.value(context).toString()) +
+             this.length.toString(context)) +
             "]");
   }
 
@@ -674,29 +677,30 @@ function ArrayType(element, optLen) {
   }
 
   this.deconstruct = function (context) {
-    context.value = null;
+    context.result = null;
     var e = element.dereference(context);
     var isstr = e.isAscii(context);
     var result = isstr ? "" : [];
     for (var i = 0; ; ++i) {
       if (context.eof()) break;
       if (!isnull(this.length)) {
-        if (typeof this.length.value() != typeof 1)
+        var count = this.length.value(context)
+        if (typeof count != typeof 1)
           throw new DeconError("Invalid array length: " + 
-                               inspect(this.length.value()), context);
-        if (i >= this.length.value()) break;
+                               inspect(count), context);
+        if (i >= count) break;
       }
       if (equals(this.before, context.peek(), context)) break;
       var v = e.deconstruct(context);
-      if (equals(this.until, context.value, context)) break;
+      if (equals(this.until, context.result, context)) break;
       if (isstr)
         result += v;
       else
         result.push(v);
-      if (equals(this.through, context.value, context)) break;
+      if (equals(this.through, context.result, context)) break;
     }
-    context.value = result;
-    return context.value;
+    context.result = result;
+    return context.result;
   }
 }
 
@@ -739,27 +743,27 @@ function AtomicType(basis) {
   }
 
   this.deconstruct = function (context) {
-    context.value = 0;
+    context.result = 0;
     for (var i = 0; i < size(context); i += 8) {
       var v = context.bite();
       if (bigendian(context)) {
         if (signed(context) && i === 0 && (v & 0x80)) 
           v = negateByte(v);
-        context.value <<= 8;
-        context.value += v;
+        context.result <<= 8;
+        context.result += v;
       } else {
         if (signed(context) && i === size(context) - 8 && (v & 0x80)) 
           v = negateByte(v);
-        context.value |= v << i;
+        context.result |= v << i;
       }
     }
     if (base(context) === 256) 
-      context.value = String.fromCharCode(context.value);
+      context.result = String.fromCharCode(context.result);
     else if (base(context) === 2) 
-      context.value = !!context.value;
+      context.result = !!context.result;
     else if (base(context) === 0)
-      context.value = null;
-    return context.value;
+      context.result = null;
+    return context.result;
   }
 }
 
@@ -775,7 +779,7 @@ function ModifiedType(key, value, underlying) {
   }
 
   this.toString = function (context) {
-    if (isnull(context)) context = { modifiers: {}, defaults: {} };
+    if (isnull(context)) context = { modifiers: {}, defaults: {}, scope: [] };
 
     if (!isnull(context.modifiers[this.key])) {
       return this.underlying.toString(context);
@@ -834,17 +838,19 @@ function StructType() {
     for (var k in context.modifiers) 
       if (context.modifiers.hasOwnProperty(k))
         context.defaults[k] = context.modifiers[k];
-    context.modifiers = {}
+    context.modifiers = {};
+    context.scope.unshift({});
     return state;
   }
 
   function popScope(context, state) {
     context.defaults = state[0];
     context.modifiers = state[1];
+    context.scope.shift();
   }
 
   this.toString = function (context) {
-    if (isnull(context)) context = { modifiers: {}, defaults: {} };
+    if (isnull(context)) context = { modifiers: {}, defaults: {}, scope: [] };
     var formerstate = pushScope(context);
     var result = "{\n";
     for (var i = 0; i < fields.length; ++i) 
@@ -855,9 +861,11 @@ function StructType() {
 
   this.deconstruct = function (context) {
     var formerstate = pushScope(context);
-    var result = {}
+    var result = context.scope[0];
     for (var i = 0; i < fields.length; ++i) {
       var field = fields[i];
+      var type = field.type(context);
+      console.log(">>>" + type);
       var value = field.type(context).deconstruct(context);
       if (!isnull(field.value) && value !== field.value.value())
         throw new DeconError("Non-matching value. Expected: " + 
@@ -867,7 +875,7 @@ function StructType() {
         result[field.name] = value;
     }
     popScope(context, formerstate);
-    return (context.value = result);
+    return (context.result = result);
   }
 }
 
@@ -897,11 +905,13 @@ function ReferenceValue(name) {
   }
 
   this.toString = function (context) {
-    return dereference(context).toString(context);
+    return name;
   }
 
   function dereference(context) {
-    // get the value from the built values here
+    for (var s = 0; s < context.scope.length; ++s)
+      if (!isnull(context.scope[s][name]))
+        return makeValue(context.scope[s][name]);
     var result = CONSTANTS[name];
     if (isnull(result))
       throw new DeconError("Undefined constant <" + name + ">", context);
