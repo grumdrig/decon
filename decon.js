@@ -195,7 +195,7 @@ TYPES["byte"] = new AtomicType({});
 TYPES["char"] = new AtomicType({base: 256});
 TYPES["bool"] = new AtomicType({base: 2});
 TYPES["null"] = new AtomicType({base: 0, size: 0});
-TYPES["int"] = new ModifiedType("size", 32, 
+TYPES["int"] = new ModifiedType("size", makeValue(32), 
                                 new ModifiedType("signed", makeValue(true), 
                                                  new ReferenceType("byte")));
   
@@ -328,13 +328,8 @@ function DeconParser(text) {
         var fieldtype = tryToParseType();
         var fieldvalue = tryToParseValue(true);
         var fieldname = tryToTake(T.IDENTIFIER);
-        if (!isnull(fieldvalue)) {
-          if (isnull(fieldtype))
-            fieldtype = fieldvalue.type;  // Infer type from literal's type
-          fieldvalue = fieldvalue.value;
-        }
-        if (isnull(fieldtype))
-          throw new SyntaxError("Expected type in field specification");
+        if (isnull(fieldvalue) && isnull(fieldtype))
+          throw new SyntaxError("Missing type in field specification");
         s.addField(fieldname, fieldvalue, fieldtype);
         if (tryToTake("}")) break;  // Allow closing brace w/o newline
         takeNewlines();
@@ -412,10 +407,15 @@ function DeconParser(text) {
                                               makeValue(value.length)));
     } else if (!infield && is(T.IDENTIFIER)) {
       var name = take(T.IDENTIFIER);
-      // TODO: keep a reference instead
-      result = CONSTANTS[name];
-      if (isnull(result)) 
-        throw new SyntaxError("Undefined constant <" + name + ">");
+      /*
+      if (is(".")) {
+        name = [name];
+        while (tryToTake("."))
+          name.push(take(T.IDENTIFIER));
+      }
+      */
+      result = new ReferenceValue(name);
+      
     } else if (tryToTake("(")) {
       result = parseValue();
       take(")");
@@ -653,19 +653,19 @@ function ArrayType(element, optLen) {
   this.toString = function (context) {
     return ("" + this.element.toString(context) + "[" + 
             (isnull(this.until)  ? "" :
-             "until " + this.until.toString(context)) + 
+             "until " + this.until.value(context).toString()) + 
             (isnull(this.through)? "" :
-             "through "+ this.through.toString(context)) + 
+             "through "+ this.through.value(context).toString()) + 
             (isnull(this.before) ? "" : 
-             "before " + this.before.toString(context)) +
+             "before " + this.before.value(context).toString()) +
             (isnull(this.length) ? "" : 
-             this.length.toString(context)) +
+             this.length.value(context).toString()) +
             "]");
   }
 
-  function equals(terminator, value) {
+  function equals(terminator, value, context) {
     if (isnull(terminator)) return false;
-    var term = terminator.value;
+    var term = terminator.value(context);
     if (typeof term != typeof value) {
       if (typeof term == typeof 1)  term = String.fromCharCode(term);
       if (typeof value == typeof 1) value = String.fromCharCode(value);
@@ -681,19 +681,19 @@ function ArrayType(element, optLen) {
     for (var i = 0; ; ++i) {
       if (context.eof()) break;
       if (!isnull(this.length)) {
-        if (typeof this.length.value != typeof 1)
+        if (typeof this.length.value() != typeof 1)
           throw new DeconError("Invalid array length: " + 
-                               inspect(this.length.value), context);
-        if (i >= this.length.value) break;
+                               inspect(this.length.value()), context);
+        if (i >= this.length.value()) break;
       }
-      if (equals(this.before, context.peek())) break;
+      if (equals(this.before, context.peek(), context)) break;
       var v = e.deconstruct(context);
-      if (equals(this.until, context.value)) break;
+      if (equals(this.until, context.value, context)) break;
       if (isstr)
         result += v;
       else
         result.push(v);
-      if (equals(this.through, context.value)) break;
+      if (equals(this.through, context.value, context)) break;
     }
     context.value = result;
     return context.value;
@@ -706,9 +706,9 @@ function AtomicType(basis) {
     if (!isnull(basis[key])) return basis[key];
     if (!isnull(context)) {
       if (!isnull(context.modifiers[key])) 
-        return context.modifiers[key].toString();
+        return context.modifiers[key].value(context);
       if (!isnull(context.defaults[key])) 
-        return context.defaults[key].toString();
+        return context.defaults[key].value(context);
     }
     return defvalue;
   }
@@ -810,13 +810,16 @@ function StructType() {
 
   function Field(name, value, type) {
     this.name = name;
-    this.value = value;
-    this.type = type;
+
+    this.type = function (context) {
+      if (!isnull(type)) return type;
+      else return value.type(context);
+    }
 
     this.toString = function (context) {
-      return (isnull(name) ? "" : name + " ") + 
-             (isnull(value) ? "" : value + " ") + 
-             type.toString(context);
+      return ((isnull(name) ? "" : name + " ") + 
+              (isnull(value) ? "" : inspect(value.value(context)) + " ") + 
+              this.type(context).toString(context));
     }
   }
   
@@ -855,9 +858,10 @@ function StructType() {
     var result = {}
     for (var i = 0; i < fields.length; ++i) {
       var field = fields[i];
-      var value = field.type.deconstruct(context);
-      if (!isnull(field.value) && value !== field.value)
-        throw new DeconError("Non-matching value. Expected: " + field.value +
+      var value = field.type(context).deconstruct(context);
+      if (!isnull(field.value) && value !== field.value.value())
+        throw new DeconError("Non-matching value. Expected: " + 
+                             field.value.value() +
                              ", got:" + inspect(value), context);
       if (!isnull(field.name))
         result[field.name] = value;
@@ -869,13 +873,42 @@ function StructType() {
 
 
 function Value(value, type) {
-  this.value = value;
-  this.type = type;
+  this.value = function (context) {
+    return value;
+  }
+  
+  this.type = function (context) {
+    return type;
+  }
 
   this.toString = function (context) {
     return inspect(this.value);
   }
 }
+
+
+function ReferenceValue(name) {
+  this.value = function (context) {
+    return dereference(context).value(context);
+  }
+  
+  this.type = function (context) {
+    return dereference(context).type(context);
+  }
+
+  this.toString = function (context) {
+    return dereference(context).toString(context);
+  }
+
+  function dereference(context) {
+    // get the value from the built values here
+    var result = CONSTANTS[name];
+    if (isnull(result))
+      throw new DeconError("Undefined constant <" + name + ">", context);
+    return result;
+  }
+}
+
 
 function makeValue(value) {
   if (isnull(value))

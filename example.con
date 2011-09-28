@@ -9,7 +9,7 @@ Look: {
 # This version produces finalized parse (or would if it worked)
 Look2: {
   uint16[0x200] _offsets
-  #description CString.at(_offsets[tile])[tile before(0x1a)]
+  #description at(_offsets[tile]) CString[index(tile) before(0x1a)]
   byte[]
 }
 
