@@ -1,9 +1,5 @@
 
-// TODO: literals
-// TODO: get rid of case-significance for types vs fields, etc
-// TODO: constants
-// TODO: probably want a string type
-// TODO: use a context for dereferencing
+// TODO: get rid of "base"
 // TODO: back-references and indices on arrays
 
 var fs = require("fs");
@@ -180,9 +176,9 @@ function runTests() {
   testParseValue("0", 0);
   testParseValue("6", 6);
   testParseValue("3", 3);
-  testParseValue("2*3", 2*3);
-  testParseValue("3*2", 3*2);
-  testParseValue("-2*3/26", -2*3/26);
+  testParseValue("(2*3)", 2*3);
+  testParseValue("(3*2)", 3*2);
+  testParseValue("(-2*3/26)", -2*3/26);
   testParseValue("0x20", 32);
   testParseValue("' '", 32);
   
@@ -232,10 +228,14 @@ function DeconParser(text) {
   }
 
   var is = this.is = function (tokenTypeOrLiteral) { 
-    if (typeof tokenTypeOrLiteral === typeof "")
+    if (typeof tokenTypeOrLiteral === typeof "") {
       return tokenMatcher.group(T.TOKEN) === tokenTypeOrLiteral;
-    else
-      return tokenMatcher.group(tokenTypeOrLiteral) != null;
+    } else {
+      var result = tokenMatcher.group(tokenTypeOrLiteral);
+      if (!isnull(result) && !result)
+        return true;  // Can't return the match as the truth value
+      return result;
+    }
   }
 
   function take(something) {
@@ -383,55 +383,55 @@ function DeconParser(text) {
   }
 
   function tryToParseValue(infield) {
-    var result;
+
     if (is(T.NUMBER)) {
-      result = makeValue(parseInt(take()));
+      return makeValue(parseInt(take()));
+
     } else if (is(T.HEXNUMBER)) {
       var hex = take(T.HEXNUMBER);
-      result = new Value(parseInt(hex, 16),
-                         new ModifiedType("size",
-                                          makeValue(4 * hex.length), 
-                                          new ReferenceType("int")));
+      return new LiteralValue(parseInt(hex, 16),
+                              new ModifiedType("size",
+                                               makeValue(4 * hex.length), 
+                                               new ReferenceType("int")));
+
     } else if (is(T.SINGLEQUOTED)) {
       // TODO: deal with endianness and type-specifying and all that
       var s = JSON.parse('"' + take(T.SINGLEQUOTED) + '"');
       var value = 0;
       for (var i = 0; i < s.length; ++i)
         value = (value << 8) + (0xFF & s.charCodeAt(i));
-      result = new Value(value, new ModifiedType("size", 
-                                                 makeValue(8 * s.length),
-                                                 new ReferenceType("int")));
+      return new LiteralValue(value, new ModifiedType("size", 
+                                                      makeValue(8 * s.length),
+                                                      new ReferenceType("int")));
+
     } else if (is(T.QUOTED)) {
       var value = JSON.parse('"' + take(T.QUOTED) + '"');
-      result = new Value(value, new ArrayType(new ReferenceType("char"), 
-                                              makeValue(value.length)));
+      return new LiteralValue(value, new ArrayType(new ReferenceType("char"), 
+                                                   makeValue(value.length)));
+
     } else if (!infield && is(T.IDENTIFIER)) {
-      var name = take(T.IDENTIFIER);
-      /*
-      if (is(".")) {
-        name = [name];
-        while (tryToTake("."))
-          name.push(take(T.IDENTIFIER));
-      }
-      */
-      result = new ReferenceValue(name);
+      return new ReferenceValue(take(T.IDENTIFIER));
       
     } else if (tryToTake("(")) {
-      result = parseValue();
+      var result = parseExpression();
       take(")");
+      return result;
+
     } else {
       return null;
     }
-    
-    // TODO: rewrite left-associatively
-    if (tryToTake("/")) {
-      result /= parseValue();
-    } else if (tryToTake("*")) {
-      result *= parseValue();
-    } else if (tryToTake("+")) {
-      result += parseValue();
-    } else if (tryToTake("-")) {
-      result -= parseValue();
+  }
+
+
+  var operators = "/*+-.".split("");
+
+  function parseExpression() {
+    var result = parseValue();
+
+    // TODO associativity rules
+    while (operators.indexOf(is(T.PUNCTUATION)) >= 0) {
+      var operator = take(T.PUNCTUATION);
+      result = new ExpressionValue(result, operator, parseValue());
     }
 
     return result;
@@ -872,7 +872,7 @@ function StructType() {
 }
 
 
-function Value(value, type) {
+function LiteralValue(value, type) {
   this.value = function (context) {
     return value;
   }
@@ -882,7 +882,7 @@ function Value(value, type) {
   }
 
   this.toString = function (context) {
-    return inspect(this.value);
+    return inspect(this.value());
   }
 }
 
@@ -910,15 +910,48 @@ function ReferenceValue(name) {
 }
 
 
+function ExpressionValue(left, operator, right) {
+  this.value = function (context) {
+    var result = left.value(context);
+    if (operator === ".") {
+      // Field access
+      context.scope.unshift(result);
+      result = right.value(context);
+      context.scope.shift();
+    } else {
+      // Arithmetic
+      var rvalue = right.value(context);
+      // TODO: auto type conversion?
+      switch (operator) {
+      case "+":  result += rvalue;  break;
+      case "-":  result -= rvalue;  break;
+      case "*":  result *= rvalue;  break;
+      case "/":  result /= rvalue;  break;
+      default: throw new DeconError("Internal Error: unknown operator", context);
+      }
+    }
+    return result;
+  }
+
+  this.type = function (context) {
+    return ReferenceType("null");  // frankly, this would be a mess.
+  }
+
+  this.toString = function (context) {
+    return "(" + left.toString(context) + " " + operator + " " + 
+                right.toString(context) + ")";
+  }
+
+}
+
+
 function makeValue(value) {
   if (isnull(value))
-    return new Value(value, new ReferenceType("null"));
+    return new LiteralValue(value, new ReferenceType("null"));
   else if (typeof value == typeof true)
-    return new Value(value, new ReferenceType("bool"));
+    return new LiteralValue(value, new ReferenceType("bool"));
   else if (typeof value == typeof 1)
-    return new Value(value, new ReferenceType("int"));
-  else if (typeof value == typeof "")
-    return new Value(value, new ReferenceType("char")); // dubious, but not used
+    return new LiteralValue(value, new ReferenceType("int"));
   else 
     throw new Error("Internal Error: Invalid parameter to makeValue");
 }
