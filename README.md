@@ -17,28 +17,34 @@ instructs decon to parse the named file.
 
 Type statments give a name to a specified type and take the form
 
-    TypeName = TYPESPEC
+    TypeName: TYPESPEC
 
 where TYPESPEC is either a type name, a structure type specification,
 an array type specification, or a numeric type specification.
 
-Type names must start with a capital letter. [Subject to change.]
+The elemental atomic types are `byte`, `bool`, `char` and `null`, on
+which futher atomic types may be based by applying modifiers, either
+as prefixen or dotted suffixen. (TODO: Settle on one syntax or the
+other)
 
-The primary atomic type is the numeric, which can only be specified by
-another named type, which may be modified by a set of suffixen. For
-example:
+    uint: int.unsigned
+    uword: unsigned size(2) int
 
-    UInt = Int.unsigned
+Legal modifiers are `signed`, `unsigned`, `bigendian`, `littleendian`,
+and `size N` for some value `N`, which gives the size in bits of the
+data type.
 
-An array represents repeating values in a file and is specified by
-giving a length, directly or indirectly, in brackets. Some
-examples:
+An array represents repeating fields of the same type in a file and is
+specified by giving a length, directly or indirectly, in brackets.
+Some examples:
 
-    Point3D = Int[3]
-    Matrix3D = Int[3][3]
-    Cstring = Char[until 0]
-    Line = Char[through '\n']
-    Tail = Char[]
+    Point3D: int[3]
+    Matrix3D: int[3][3]
+    Cstring: char[until 0]
+    Line: char[through '\n']
+    Tail: char[]
+
+An array of `char`s is interpreted as a string.
 
 Besides giving an explicit length between the brackets termination
 conditions can be given too:
@@ -51,15 +57,20 @@ does not include it as part of the value
 * `before X` terminates the array without consuming the terminator
 
 No terminator (empty braces) specifies an array that is as long as the
-data allows
+data allows.
 
-Structures parse sequential information and are specified by listing
-field specifications, a name and a type, between braces, e.g.:
+Structures parse sequential records of different types and are
+specified by listing field specifications, a type and/or value and
+optional name, between braces, e.g.:
 
-    PersonalInfo = {
-      name String
-      age Int
+    PersonalInfo: {
+      "PINF" tag
+      String name
+      int    age
     }
+
+A literal value, if given is tested against the value read from the
+file, and deconstruction is aborted if they do not match.
 
 
 Usage
@@ -76,7 +87,7 @@ JSON structure is written to the name OUT` file, or stdout.
 Within node, use, for example:
 
     var decon = require("decon")
-    decon.parse("Int = Numeric.littleendian");
+    decon.parse("int = size(16) littleendian byte");
     var bmpcon = decon.import("bmp.con").BitmapFile;
     var bmp = bmpcon.deconstructFile("BitmapFile", "dib.bmp");
     console.log("Width = " + bmp.info.width);
