@@ -46,4 +46,5 @@ Test: {
   at(0) String5 reprise
   byte thing1
   byte (thing1 + 1) thing2
+  byte[2 index N] (thing1 + 3 + N) things
 }

@@ -1,6 +1,5 @@
 
 // TODO: change some parseValue's to parseExpression?
-// TODO: indices on arrays
 // TODO: get rid of "base"?
 
 var fs = require("fs");
@@ -57,7 +56,7 @@ function TokenMatcher(input) {
   this.re = new RegExp("^"                         //    beginning at last match:
                        +"([ \t]*(?:#.*)?)"         // 1. spaces & comments before
                        +"("                        // 2. any token: (
-                       +  "([\\r\\n])"             // 3.   \n
+                       +  "([\\r\\n;])"            // 3.   \n
                        +  "|\"(.*)\""              // 4.   quoted
                        +  "|'(.*)'"                // 5.   single-quoted
                        +  "|([_a-zA-Z]\\w*)"       // 6.   identifier
@@ -166,6 +165,7 @@ function runTests() {
   testMatch(".", [ T.PUNCTUATION ]);
   testMatch("\"la la la\"", [ T.QUOTED ]);
   testMatch("\n", [ T.NEWLINE ]);
+  testMatch(";", [ T.NEWLINE ]);
   testMatch("0x0", [ T.HEXNUMBER ]);
   testMatch("0XABC", [ T.HEXNUMBER ]);
   testMatch("*", [ T.PUNCTUATION ]);
@@ -364,14 +364,22 @@ function DeconParser(text) {
         }
       } else if (tryToTake("[")) {
         result = new ArrayType(result);
-        if (tryToTake("until")) {
-          result.until = parseValue();
-        } else if (tryToTake("through")) {
-          result.through = parseValue();
-        } else if (tryToTake("before")) {
-          result.before = parseValue();
-        } else {
-          result.length = tryToParseValue();
+        for (;;) {
+          if (isnull(result.until) && tryToTake("until")) {
+            result.until = parseValue();
+          } else if (isnull(result.through) && tryToTake("through")) {
+            result.through = parseValue();
+          } else if (isnull(result.before) && tryToTake("before")) {
+            result.before = parseValue();
+          } else if (isnull(result.index) && tryToTake("index")) {
+            result.index = take(T.IDENTIFIER);
+          } else {
+            if (!isnull(result.length)) 
+              break;
+            result.length = tryToParseValue();
+            if (isnull(result.length))
+              break;
+          }
         }
         take("]");
       } else {
@@ -430,7 +438,7 @@ function DeconParser(text) {
   }
 
 
-  var operators = "/*+-.".split("");
+  var operators = "/*+-.[".split("");
 
   function parseExpression() {
     var result = parseValue();
@@ -438,7 +446,13 @@ function DeconParser(text) {
     // TODO associativity rules
     while (operators.indexOf(is(T.PUNCTUATION)) >= 0) {
       var operator = take(T.PUNCTUATION);
-      result = new ExpressionValue(result, operator, parseValue());
+      if (operator === "[") {
+        var rhs = parseExpression();
+        take("]");
+      } else {
+        var rhs = parseValue();
+      }
+      result = new ExpressionValue(result, operator, rhs);
     }
 
     return result;
@@ -658,20 +672,21 @@ function ReferenceType(name) {
 
 function ArrayType(element, optLen) {
 
-  this.element = element;
   if (!isnull(optLen)) this.length = optLen;
 
   this.toString = function (context) {
-    return ("" + this.element.toString(context) + "[" + 
-            (isnull(this.until)  ? "" :
-             "until " + this.until.toString(context)) + 
-            (isnull(this.through)? "" :
-             "through "+ this.through.toString(context)) + 
-            (isnull(this.before) ? "" : 
-             "before " + this.before.toString(context)) +
-            (isnull(this.length) ? "" : 
-             this.length.toString(context)) +
-            "]");
+    var terms = [];
+    if (!isnull(this.length)) 
+      terms.push(this.length.toString(context));
+    if (!isnull(this.index)) 
+      terms.push("index " + this.index);
+    if (!isnull(this.until)) 
+      terms.push("until " + this.until.toString(context));
+    if (!isnull(this.through)) 
+      terms.push("through "+ this.through.toString(context));
+    if (!isnull(this.before)) 
+      terms.push("before " + this.before.toString(context));
+    return ("" + element.toString(context) + "[" + terms.join(" ") + "]");
   }
 
   function equals(terminator, value, context) {
@@ -686,10 +701,13 @@ function ArrayType(element, optLen) {
 
   this.deconstruct = function (context) {
     context.result = null;
-    var e = element.dereference(context);
-    var isstr = e.isAscii(context);
+    if (this.index)
+      context.scope.unshift({});
+    var isstr = element.isAscii(context);
     var result = isstr ? "" : [];
     for (var i = 0; ; ++i) {
+      if (this.index)
+        context.scope[0][this.index] = i;
       if (context.eof()) break;
       if (!isnull(this.length)) {
         var count = this.length.value(context)
@@ -699,7 +717,7 @@ function ArrayType(element, optLen) {
         if (i >= count) break;
       }
       if (equals(this.before, context.peek(), context)) break;
-      var v = e.deconstruct(context);
+      var v = element.deconstruct(context);
       if (equals(this.until, context.result, context)) break;
       if (isstr)
         result += v;
@@ -708,6 +726,8 @@ function ArrayType(element, optLen) {
       if (equals(this.through, context.result, context)) break;
     }
     context.result = result;
+    if (this.index)
+      context.scope.shift();
     return context.result;
   }
 }
@@ -946,6 +966,10 @@ function ExpressionValue(left, operator, right) {
       context.scope.unshift(result);
       result = right.value(context);
       context.scope.shift();
+    } else if (operator === "[") {
+      // Index
+      var index = right.value(context);
+      result = result[index];
     } else {
       // Arithmetic
       var rvalue = right.value(context);
@@ -966,10 +990,12 @@ function ExpressionValue(left, operator, right) {
   }
 
   this.toString = function (context) {
-    return "(" + left.toString(context) + " " + operator + " " + 
-                right.toString(context) + ")";
+    if (operator === "[")
+      return left.toString(context) + "[" + right.toString(context) + "]";
+    else
+      return "(" + left.toString(context) + " " + operator + " " + 
+                  right.toString(context) + ")";
   }
-
 }
 
 
@@ -980,8 +1006,10 @@ function makeValue(value) {
     return new LiteralValue(value, new ReferenceType("bool"));
   else if (typeof value == typeof 1)
     return new LiteralValue(value, new ReferenceType("int"));
-  else 
-    throw new Error("Internal Error: Invalid parameter to makeValue");
+  else  {
+    //throw new Error("Internal Error: Invalid parameter to makeValue: " + typeof value);
+    return new LiteralValue(value, new ReferenceType("object"));
+  }
 }
 
 
