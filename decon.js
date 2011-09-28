@@ -841,7 +841,7 @@ function StructType() {
 
     this.toString = function (context) {
       return ((isnull(name) ? "" : name + " ") + 
-              (isnull(value) ? "" : inspect(value.value(context)) + " ") + 
+              (isnull(value) ? "" : value.toString(context) + " ") + 
               this.type(context).toString(context));
     }
   }
@@ -884,7 +884,6 @@ function StructType() {
     for (var i = 0; i < fields.length; ++i) {
       var field = fields[i];
       var type = field.type(context);
-      console.log(">>>" + type);
       var value = field.type(context).deconstruct(context);
       if (!isnull(field.value) && value !== field.value.value())
         throw new DeconError("Non-matching value. Expected: " + 

@@ -13,6 +13,8 @@ Little: littleendian { Word word }
 terminator = 'T' char
 TString: char[through terminator]
 
+String5: char[5]
+
 Test: {
   char[5] "#abcd" f1
   char[5]
@@ -41,6 +43,7 @@ Test: {
   "[three]"
   "OK" ok
 
-  # Ignore the tail
-  char[]
+  at(0) String5 reprise
+  byte thing1
+  byte (thing1 + 1) thing2
 }
