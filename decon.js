@@ -469,25 +469,32 @@ String.prototype.endsWith = function(suffix) {
 function main() {
   var args = process.argv.slice(2);
   var Main;
+  var mainname;
+  var submains = [];
   var a = 0;
   var partialok = null;
+  var variable;
   for (; a < args.length; ++a) {
     var arg = args[a];
     if (arg === "-p") {
       partialok = true;
+    } else if (arg == "-v") {
+      variable = args[++a];
     } else if (arg.endsWith(".con")) {
       parseFile(arg);
     } else {
       // Must be a type
-      Main = TYPES[arg];
+      submains = arg.split(".");
+      mainname = submains.shift();
+      Main = TYPES[mainname];
       if (isnull(Main)) {
         // Don't know it - look for a .con file
-        if (fs.statSync(arg + ".con").isFile())
-          parseFile(arg + ".con");
-        Main = TYPES[arg];
+        if (fs.statSync(mainname + ".con").isFile())
+          parseFile(mainname + ".con");
+        Main = TYPES[mainname];
       }
       if (isnull(Main)) {
-        console.error("Construction not found: " + arg);
+        console.error("Construction not found: " + main);
         process.exit(404);
       }
       ++a;
@@ -520,10 +527,15 @@ function main() {
     }
   }
 
+  while (submains.length > 0)
+    tree = tree[submains.shift()];
+
+  var prefix = variable ? "var " + variable + " = " : "";
+  var suffix = variable ? ";" : "";
   if (a < args.length)
-    fs.writeFile(args[a++], JSON.stringify(tree));
+    fs.writeFile(args[a++], prefix + JSON.stringify(tree) + suffix);
   else
-    console.log(tree);
+    console.log(prefix, tree, suffix);
 }
 
 
