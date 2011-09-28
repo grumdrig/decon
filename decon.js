@@ -1,6 +1,7 @@
 
-// TODO: get rid of "base"
-// TODO: back-references and indices on arrays
+// TODO: change some parseValue's to parseExpression?
+// TODO: indices on arrays
+// TODO: get rid of "base"?
 
 var fs = require("fs");
 var inspect = require("util").inspect;
@@ -319,6 +320,8 @@ function DeconParser(text) {
       return new ModifiedType("bigendian", makeValue(true), parseType());
     } else if (tryToTake("littleendian")) {
       return new ModifiedType("bigendian", makeValue(false), parseType());
+    } else if (tryToTake("at")) {
+      return new ModifiedType("at", parseValue(), parseType());
     } 
 
     if (tryToTake("{")) {
@@ -342,34 +345,38 @@ function DeconParser(text) {
       return;
     }
 
-    while (tryToTake(".")) {
-      if (tryToTake("unsigned")) {
-        result = new ModifiedType("signed", makeValue(false), result);
-      } else if (tryToTake("signed")) {
-        result = new ModifiedType("signed", makeValue(true), result);
-      } else if (tryToTake("size")) {
-        result = new ModifiedType("size", parseValue(), result);
-      } else if (tryToTake("bigendian")) {
-        result = new ModifiedType("bigendian", makeValue(true), result);
-      } else if (tryToTake("littleendian")) {
-        result = new ModifiedType("bigendian", makeValue(false), result);
+    for (;;) {
+      if (tryToTake(".")) {
+        if (tryToTake("unsigned")) {
+          result = new ModifiedType("signed", makeValue(false), result);
+        } else if (tryToTake("signed")) {
+          result = new ModifiedType("signed", makeValue(true), result);
+        } else if (tryToTake("size")) {
+          result = new ModifiedType("size", parseValue(), result);
+        } else if (tryToTake("bigendian")) {
+          result = new ModifiedType("bigendian", makeValue(true), result);
+        } else if (tryToTake("littleendian")) {
+          result = new ModifiedType("bigendian", makeValue(false), result);
+        } else if (tryToTake("at")) {
+          result = new ModifiedType("at", parseValue(), result);
+        } else {
+          throw new SyntaxError("Invalid type modifier");
+        }
+      } else if (tryToTake("[")) {
+        result = new ArrayType(result);
+        if (tryToTake("until")) {
+          result.until = parseValue();
+        } else if (tryToTake("through")) {
+          result.through = parseValue();
+        } else if (tryToTake("before")) {
+          result.before = parseValue();
+        } else {
+          result.length = tryToParseValue();
+        }
+        take("]");
       } else {
-        throw new SyntaxError("Invalid type modifier");
+        break;
       }
-    }
-        
-    while (tryToTake("[")) {
-      result = new ArrayType(result);
-      if (tryToTake("until")) {
-        result.until = parseValue();
-      } else if (tryToTake("through")) {
-        result.through = parseValue();
-      } else if (tryToTake("before")) {
-        result.before = parseValue();
-      } else {
-        result.length = tryToParseValue();
-      }
-      take("]");
     }
     return result;
   }
@@ -449,11 +456,11 @@ function main() {
   var args = process.argv.slice(2);
   var Main;
   var a = 0;
-  var wholefile = true;
+  var partialok = null;
   for (; a < args.length; ++a) {
     var arg = args[a];
     if (arg === "-p") {
-      wholefile = false;
+      partialok = true;
     } else if (arg.endsWith(".con")) {
       parseFile(arg);
     } else {
@@ -486,7 +493,7 @@ function main() {
     console.error("MAIN:");
     console.error("" + Main);
 
-    var tree = Main.deconstructFile(args[a++] || '/dev/stdin', wholefile);
+    var tree = Main.deconstructFile(args[a++] || '/dev/stdin', partialok);
   } catch (de) {
     if (de instanceof DeconError) {
       // TODO print some more context
@@ -589,11 +596,12 @@ function Context(buffer) {
 function Type() {
   this.dereference = function (context) { return this; }
 
-  this.deconstructFile = function (filename, wholefile) {
+  this.deconstructFile = function (filename, partialok) {
     var inbuf = fs.readFileSync(filename);
     var context = new Context(inbuf);
     var result = this.deconstruct(context);
-    if (wholefile && !context.eof())
+    if (isnull(partialok)) partialok = context.adjusted;
+    if (!partialok && !context.eof())
       throw new DeconError("Unconsumed data at end of file", context);
     return result;
   }
@@ -774,11 +782,16 @@ function ModifiedType(key, value, underlying) {
   this.underlying = underlying;
 
   this.isAscii = function (context) {
-    // Base doesn't get modified (TODO: should get rid of that base shit anyway)
+    // Base doesn't get modified
     return this.underlying.isAscii(context);
   }
 
   this.toString = function (context) {
+    if (this.key === "at") {
+      return this.underlying.toString(context) + ".at(" + 
+             this.value.toString(context) + ")";
+    }
+      
     if (isnull(context)) context = { modifiers: {}, defaults: {}, scope: [] };
 
     if (!isnull(context.modifiers[this.key])) {
@@ -795,6 +808,12 @@ function ModifiedType(key, value, underlying) {
   }
 
   this.deconstruct = function (context) {
+    if (this.key === "at") {
+      context.bitten = this.value.value(context);
+      context.adjusted = true;
+      return this.underlying.deconstruct(context);
+    }
+
     if (!isnull(context.modifiers[this.key])) {
       return this.underlying.deconstruct(context);
     } else {
