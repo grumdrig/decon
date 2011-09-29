@@ -183,7 +183,7 @@ function runTests() {
   testParseValue("0x20", 32);
   testParseValue("' '", 32);
   
-  console.error("PASS");
+  return true;
 }
 
 
@@ -281,8 +281,18 @@ function DeconParser(text) {
       
       if (tryToTake("import")) {
         // import
-        var filename = take(T.QUOTED);
-        parseFile(filename);
+        if (tryToTake("standard")) {
+          parse("int8: int.size 8;" +
+                "int16: int.size 16;" +
+                "int32: int.size 32;" +
+                "uint: byte.unsigned.size(32);" +
+                "uint8: uint.size 8;" +
+                "uint16: uint.size 16;" +
+                "uint32: uint.size 32;");
+        } else {
+          var filename = take(T.QUOTED);
+          parseFile(filename);
+        }
       } else {
         var name = take(T.IDENTIFIER);
         if (tryToTake(":")) {
@@ -301,13 +311,13 @@ function DeconParser(text) {
       
       if (!is(T.EOF)) takeNewlines();
     }
-  }
+  };
 
-  function parseType() {
+  var parseType = this.parseType = function() {
     var type = tryToParseType();
     if (isnull(type)) throw new SyntaxError("Type expected");
     return type;
-  }
+  };
 
   function tryToParseType() {
     if (tryToTake("unsigned")) {
@@ -334,6 +344,12 @@ function DeconParser(text) {
         if (isnull(fieldvalue) && isnull(fieldtype))
           throw new SyntaxError("Missing type in field specification");
         s.addField(fieldname, fieldvalue, fieldtype);
+
+        while (tryToTake(",")) {
+          fieldname = take(T.IDENTIFIER);
+          s.addField(fieldname, fieldvalue, fieldtype);
+        }
+          
         if (tryToTake("}")) break;  // Allow closing brace w/o newline
         takeNewlines();
       }
@@ -473,48 +489,63 @@ function main() {
   var submains = [];
   var a = 0;
   var partialok = null;
+  var verbose = null;
   var variable;
+  var infile = '/dev/stdin';
+  var outfile = null;
+  var readable = null;
   for (; a < args.length; ++a) {
     var arg = args[a];
+
     if (arg === "-p") {
       partialok = true;
+
     } else if (arg == "-v") {
+      verbose = true;
+
+    } else if (arg == "-V") {
       variable = args[++a];
+
+    } else if (arg == "-f") {
+      submains = args[++a].split(".");
+
+    } else if (arg === "-i") {
+      infile = args[++a];
+
+    } else if (arg === "-o") {
+      outfile = args[++a];
+
+    } else if (arg === "-h") {
+      readable = true;
+
     } else if (arg.endsWith(".con")) {
       parseFile(arg);
+
     } else {
       // Must be a type
-      submains = arg.split(".");
-      mainname = submains.shift();
-      Main = TYPES[mainname];
-      if (isnull(Main)) {
-        // Don't know it - look for a .con file
-        if (fs.statSync(mainname + ".con").isFile())
-          parseFile(mainname + ".con");
-        Main = TYPES[mainname];
-      }
-      if (isnull(Main)) {
-        console.error("Construction not found: " + main);
-        process.exit(404);
-      }
-      ++a;
-      break;
+      if (!isnull(Main)) usage();
+      Main = parse(arg, "type");
     }
   }
   
+  if (runTests() && verbose)
+    console.error("PASS");
+
   if (isnull(Main))
     usage();
 
   try {
-    console.error("TYPES:");
-    for (var k in TYPES)
-      if (TYPES.hasOwnProperty(k))
-        console.error(k + ": " + TYPES[k]);
+    if (verbose) {
+      console.error("TYPES:");
+      for (var k in TYPES)
+        if (TYPES.hasOwnProperty(k))
+          console.error(k + ": " + TYPES[k]);
 
-    console.error("MAIN:");
-    console.error("" + Main);
+      console.error("MAIN:");
+      console.error("" + Main);
+    }
 
-    var tree = Main.deconstructFile(args[a++] || '/dev/stdin', partialok);
+    var tree = Main.deconstructFile(infile, partialok);
   } catch (de) {
     if (de instanceof DeconError) {
       // TODO print some more context
@@ -530,12 +561,18 @@ function main() {
   while (submains.length > 0)
     tree = tree[submains.shift()];
 
-  var prefix = variable ? "var " + variable + " = " : "";
-  var suffix = variable ? ";" : "";
-  if (a < args.length)
-    fs.writeFile(args[a++], prefix + JSON.stringify(tree) + suffix);
+  if (readable)
+    tree = inspect(tree, null, null);
+  else 
+    tree = JSON.stringify(tree);
+
+  if (variable) 
+    tree = "var " + variable + " = " + tree + ";";
+
+  if (isnull(outfile))
+    console.log(tree);
   else
-    console.log(prefix, tree, suffix);
+    fs.writeFile(outfile, prefix + tree + suffix);
 }
 
 
@@ -575,10 +612,13 @@ var parseFile = exports.import = function (filename) {
 }
 
   
-var parse = exports.parse = function (string) {
+var parse = exports.parse = function (string, what) {
   try {
     var p = new DeconParser(string);
-    p.go();
+    if (what == "type")
+      return p.parseType();
+    else
+      p.go();
   } catch (e) {
     if (e instanceof SyntaxError) {
       // TODO add context
@@ -1026,6 +1066,5 @@ function makeValue(value) {
 
 
 if (require.main === module) {
-  runTests();
   main();
 }
