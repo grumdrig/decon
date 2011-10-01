@@ -213,7 +213,7 @@ function DeconParser(text) {
 
   this.lineno = function () {
     return tokenMatcher.input.substring(0, tokenMatcher.pos).
-      split("\n").length - 1;
+      split("\n").length;
   };
 
   this.errorContext = function () {
@@ -302,8 +302,8 @@ function DeconParser(text) {
         } else {
           // Constant def
           take("=");
-          var literal = parseValue();
           var type = tryToParseType();
+          var literal = parseValue();
           if (!isnull(type)) literal.type = type;
           CONSTANTS[name] = literal;
         }
@@ -392,7 +392,7 @@ function DeconParser(text) {
           } else {
             if (!isnull(result.length)) 
               break;
-            result.length = tryToParseValue();
+            result.length = tryToParseExpression();
             if (isnull(result.length))
               break;
           }
@@ -457,10 +457,17 @@ function DeconParser(text) {
   var operators = "/*+-.[".split("");
 
   function parseExpression() {
-    var result = parseValue();
+    var r = tryToParseExpression();
+    if (isnull(r))
+      throw new SyntaxError("Numeric value expected");
+    return r;
+  }
+
+  function tryToParseExpression() {
+    var result = tryToParseValue();
 
     // TODO associativity rules
-    while (operators.indexOf(is(T.PUNCTUATION)) >= 0) {
+    if (!isnull(result)) while(operators.indexOf(is(T.PUNCTUATION)) >= 0) {
       var operator = take(T.PUNCTUATION);
       if (operator === "[") {
         var rhs = parseExpression();
@@ -523,7 +530,7 @@ function main() {
 
     } else {
       // Must be a type
-      if (!isnull(Main)) usage();
+      if (!isnull(Main)) usage("Main already supplied");
       Main = parse(arg, "type");
     }
   }
@@ -532,7 +539,7 @@ function main() {
     console.error("PASS");
 
   if (isnull(Main))
-    usage();
+    usage("No main type specified");
 
   try {
     if (verbose) {
@@ -576,7 +583,8 @@ function main() {
 }
 
 
-function usage() {
+function usage(msg) {
+  if (!isnull(msg)) console.error(msg);
   console.error("Usage: node decon.js [DEF.con...] MAIN [IN [OUT]]");
   process.exit(302);
 }
@@ -903,18 +911,29 @@ function ModifiedType(key, value, underlying) {
 
 function StructType() {
 
-  function Field(name, value, type) {
-    this.name = name;
+  function Field(nam, val, typ) {
+    this.name = nam;
+
+    function value(context) {
+      return isnull(val) ? null : val.value(context);
+    }
 
     this.type = function (context) {
-      if (!isnull(type)) return type;
-      else return value.type(context);
+      if (!isnull(typ)) return typ;
+      else return val.type(context);
     }
 
     this.toString = function (context) {
-      return ((isnull(name) ? "" : name + " ") + 
-              (isnull(value) ? "" : value.toString(context) + " ") + 
+      return ((isnull(nam) ? "" : nam + " ") + 
+              (isnull(val) ? "" : val.toString(context) + " ") + 
               this.type(context).toString(context));
+    }
+
+    this.verifyValue = function (against, context) {
+      if (!isnull(value(context)) && value(context) !== against)
+        throw new DeconError("Non-matching value. Expected: " + 
+                             inspect(value(context)) + ", got:" + 
+                             inspect(against), context);
     }
   }
   
@@ -957,10 +976,7 @@ function StructType() {
       var field = fields[i];
       var type = field.type(context);
       var value = field.type(context).deconstruct(context);
-      if (!isnull(field.value) && value !== field.value.value())
-        throw new DeconError("Non-matching value. Expected: " + 
-                             field.value.value() +
-                             ", got:" + inspect(value), context);
+      field.verifyValue(value, context);
       if (!isnull(field.name))
         result[field.name] = value;
     }

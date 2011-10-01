@@ -24,6 +24,9 @@ Test: {
     null null
   }[2] nada
    
+  at(1) littleendian int 'dcba' dcba
+  at(1) bigendian    int 'abcd' abcd
+
   char[before 'L']
   "LMNOP"
   char Q
@@ -46,5 +49,5 @@ Test: {
   at(0) String5 reprise
   byte thing1
   byte (thing1 + 1) thing2
-  byte[2 index N] (thing1 + 3 + N) things
+  {byte (thing1 + 2 + N) b}[2 index N] things
 }
