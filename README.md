@@ -9,9 +9,9 @@ Construction file grammar
 -------------------------
 
 A construction file consists of any number of import statements and
-type definitions. An import statement such as
+type and constant definitions. An import statement such as
 
-    import "standard.con"
+    import "record.con"
 
 instructs decon to parse the named file.
 
@@ -71,6 +71,35 @@ optional name, between braces, e.g.:
 
 A literal value, if given is tested against the value read from the
 file, and deconstruction is aborted if they do not match.
+
+Unions represent a number of alternatives. E.g.:
+
+    PetRecord: union {
+      CatRecord
+      DogRecord
+    }
+
+The first matching type (that is, whose values verify against the
+data) in the union will become the value of the union. Field names
+given in a union are ignored. Give "null" as the last type in the
+union to allow the union to not match at all.
+
+An example of a union:
+
+    PlanetData: { PlanetRecord[] facts; }
+
+    PlanetRecord = union {
+      { "satellite:"; cstring moon }
+      { "diameter:"; int32 diameter }
+    }
+
+Which would process input
+ 
+    "diameter:\212\015\000\000satellite:phobos\000satellite:diemos\000"
+
+into
+
+   { facts: [{moon: "phobos"}, {moon: "diemos"}, {diameter: 6794}] }
 
 
 Usage

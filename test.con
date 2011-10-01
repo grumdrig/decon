@@ -3,19 +3,18 @@
 #19191919191919191919191919
 #[one][two][three]OK
 
-import "standard.con"
+Main: {
+  at 0 Test1 test1
+  at 0 Test2 test2
+  at 0 Test3 test3
+  at 0 Test4 test4
+  at 0 Test5 test5
+  at 0 Test6 test6
+  at 0 Test7 test7
+}
 
-Word: signed size 16 byte
 
-Big: bigendian { Word word }
-Little: littleendian { Word word }
-
-terminator = 'T' char
-TString: char[through terminator]
-
-String5: char[5]
-
-Test: {
+Test1: {
   char[5] "#abcd" f1
   char[5]
   char[10] f2
@@ -23,21 +22,36 @@ Test: {
     bool bool
     null null
   }[2] nada
-   
-  at(1) littleendian int 'dcba' dcba
-  at(1) bigendian    int 'abcd' abcd
+}
 
+
+Test2: {
+  at(1) littleendian int32 'dcba' dcba
+  at(1) bigendian    int32 'abcd' abcd
+}
+
+
+Test3: {
   char[before 'L']
   "LMNOP"
   char Q
   TString "RST" totee
+}
+terminator = char 'T'
+TString: char[through terminator]
 
+
+Test4: {
   byte[before '1']
   Little little
   Big big
+}
+Word: signed size 16 byte
+Big: bigendian { Word word }
+Little: littleendian { Word word }
 
-  # char["drop"]  
-
+ 
+Test5: {
   char[through "["]
   char[before ']']  one
   char[2] apple
@@ -45,9 +59,28 @@ Test: {
   char closebracket
   "[three]"
   "OK" ok
+}
 
+
+Test6: {
   at(0) String5 reprise
   byte thing1
   byte (thing1 + 1) thing2
   {byte (thing1 + 2 + N) b}[2 index N] things
+}
+String5: char[5]
+
+
+Test7: {
+  byte '#'
+  uint8 'a'
+  uint16 'bc'
+  uint32 'defg'
+  uint64 'hijklmno'
+  sbyte 'p'
+  int8 'q'
+  int16 'rs'
+  char[until '#']
+  int32 'ABCD'
+  int64 'EFGHIJKL'
 }

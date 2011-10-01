@@ -3,7 +3,6 @@
 // TODO: get rid of "base"?
 // TODO: make numerics default to size 8 so byte and int will be
 //       unsigned and signed bytes
-// TODO: just make standard typedefs without "import standard"
 
 var fs = require("fs");
 var inspect = require("util").inspect;
@@ -189,16 +188,30 @@ function runTests() {
   return true;
 }
 
+function modref(attr, val, ref) {
+  return new ModifiedType(attr, makeValue(val), new ReferenceType(ref));
+}
 
 var TYPES = {};
-TYPES["byte"] = new AtomicType({});
-TYPES["char"] = new AtomicType({base: 256});
-TYPES["bool"] = new AtomicType({base: 2});
 TYPES["null"] = new AtomicType({base: 0, size: 0});
-TYPES["int"] = new ModifiedType("size", makeValue(32), 
-                                new ModifiedType("signed", makeValue(true), 
-                                                 new ReferenceType("byte")));
-  
+TYPES["bool"] = new AtomicType({base: 2});
+TYPES["char"] = new AtomicType({base: 256});
+TYPES["byte"] = new AtomicType({});
+
+TYPES["uint8"]  = modref("size",  8, "byte");
+TYPES["uint16"] = modref("size", 16, "byte");
+TYPES["uint32"] = modref("size", 32, "byte");
+TYPES["uint64"] = modref("size", 64, "byte");
+
+TYPES["sbyte"] = modref("signed", true, "byte");
+TYPES["int8"]  = modref("size",  8, "sbyte");
+TYPES["int16"] = modref("size", 16, "sbyte");
+TYPES["int32"] = modref("size", 32, "sbyte");
+TYPES["int64"] = modref("size", 64, "sbyte");
+
+TYPES["cstring"] = new ArrayType(new ReferenceType("char"));
+TYPES["cstring"].until = makeValue("0");
+
 var CONSTANTS = {};
 CONSTANTS["null"] = makeValue(null);
 
@@ -284,18 +297,8 @@ function DeconParser(text) {
       
       if (tryToTake("import")) {
         // import
-        if (tryToTake("standard")) {
-          parse("int8: int.size 8;" +
-                "int16: int.size 16;" +
-                "int32: int.size 32;" +
-                "uint: byte.unsigned.size(32);" +
-                "uint8: uint.size 8;" +
-                "uint16: uint.size 16;" +
-                "uint32: uint.size 32;");
-        } else {
-          var filename = take(T.QUOTED);
-          parseFile(filename);
-        }
+        var filename = take(T.QUOTED);
+        parseFile(filename);
       } else {
         var name = take(T.IDENTIFIER);
         if (tryToTake(":")) {
@@ -427,7 +430,7 @@ function DeconParser(text) {
       return new LiteralValue(parseInt(hex, 16),
                               new ModifiedType("size",
                                                makeValue(4 * hex.length), 
-                                               new ReferenceType("int")));
+                                               new ReferenceType("uint")));
 
     } else if (is(T.SINGLEQUOTED)) {
       // TODO: deal with endianness and type-specifying and all that
@@ -437,7 +440,7 @@ function DeconParser(text) {
         value = (value << 8) + (0xFF & s.charCodeAt(i));
       return new LiteralValue(value, new ModifiedType("size", 
                                                       makeValue(8 * s.length),
-                                                      new ReferenceType("int")));
+                                                     new ReferenceType("uint")));
 
     } else if (is(T.QUOTED)) {
       var value = JSON.parse('"' + take(T.QUOTED) + '"');
@@ -933,7 +936,7 @@ function StructType(union) {
   function Field(nam, val, typ) {
     this.name = nam;
 
-    function value(context) {
+    this.value = function (context) {
       return isnull(val) ? null : val.value(context);
     }
 
@@ -946,13 +949,6 @@ function StructType(union) {
       return ((isnull(nam) ? "" : nam + " ") + 
               (isnull(val) ? "" : val.toString(context) + " ") + 
               this.type(context).toString(context));
-    }
-
-    this.verifyValue = function (against, context) {
-      if (!isnull(value(context)) && value(context) !== against)
-        throw new DeconError("Non-matching value. Expected: " + 
-                             inspect(value(context)) + ", got:" + 
-                             inspect(against), context);
     }
   }
   
@@ -995,10 +991,16 @@ function StructType(union) {
     var wasbitten = context.bitten;
     for (var i = 0; i < fields.length; ++i) {
       try {
+        var unbitten = context.bitten;
         var field = fields[i];
         var type = field.type(context);
         var value = field.type(context).deconstruct(context);
-        field.verifyValue(value, context);
+        if (!isnull(field.value(context)) && field.value(context) !== value) {
+          context.bitten = unbitten;
+          throw new DeconError("Non-matching value. Expected: " + 
+                               inspect(field.value(context)) + ", got:" + 
+                               inspect(value), context);
+        }
         if (union) {
           result = value;
           break;
@@ -1105,9 +1107,16 @@ function makeValue(value) {
     return new LiteralValue(value, new ReferenceType("null"));
   else if (typeof value == typeof true)
     return new LiteralValue(value, new ReferenceType("bool"));
-  else if (typeof value == typeof 1)
-    return new LiteralValue(value, new ReferenceType("int"));
-  else  {
+  else if (typeof value == typeof 1) {
+    if (value < 0x80)
+      return new LiteralValue(value, new ReferenceType("int8"));
+    else if (value < 0x8000)
+      return new LiteralValue(value, new ReferenceType("int16"));
+    else if (value < 0x80000000)
+      return new LiteralValue(value, new ReferenceType("int32"));
+    else 
+      return new LiteralValue(value, new ReferenceType("int64"));
+  } else  {
     //throw new Error("Internal Error: Invalid parameter to makeValue: " + typeof value);
     return new LiteralValue(value, new ReferenceType("object"));
   }
