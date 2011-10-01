@@ -1,6 +1,9 @@
 
 // TODO: change some parseValue's to parseExpression?
 // TODO: get rid of "base"?
+// TODO: make numerics default to size 8 so byte and int will be
+//       unsigned and signed bytes
+// TODO: just make standard typedefs without "import standard"
 
 var fs = require("fs");
 var inspect = require("util").inspect;
@@ -197,7 +200,7 @@ TYPES["int"] = new ModifiedType("size", makeValue(32),
                                                  new ReferenceType("byte")));
   
 var CONSTANTS = {};
-
+CONSTANTS["null"] = makeValue(null);
 
 function DeconParser(text) {
 
@@ -334,9 +337,10 @@ function DeconParser(text) {
       return new ModifiedType("at", parseValue(), parseType());
     } 
 
-    if (tryToTake("{")) {
-      // Struct
-      var s = new StructType();
+    if (is("union") || is("{")) {
+      // Struct/union      
+      var s = new StructType(tryToTake("union"));
+      take("{");
       for (maybeTakeNewlines(); !tryToTake("}"); ) {
         var fieldtype = tryToParseType();
         var fieldvalue = tryToParseValue(true);
@@ -556,8 +560,9 @@ function main() {
   } catch (de) {
     if (de instanceof DeconError) {
       // TODO print some more context
-      console.error("DECONSTRUCTION ERROR @ " + de.context.bitten + ": " +
+      console.error("DECON ERROR (@" + de.context.bitten + "): " +
                     de.problem);
+      console.error(de.context.xxd());
       console.error(de.stack);
       process.exit(-2);
     } else {
@@ -663,6 +668,20 @@ function Context(buffer) {
   this.length = function () {
     return buffer.length;
   }
+
+  this.xxd = function () {
+    var result = "000000" + this.bitten.toString(16) + ": ";
+    result = result.substr(result.length - 9);
+    var chars = "";
+    for (var i = this.bitten; i < this.bitten + 16 && i < buffer.length; ++i) {
+      if (buffer[i] < 16) result += '0';
+      result += buffer[i].toString(16);
+      if ((i & 1) == 0) result += ' ';
+      chars += buffer[i] < 32 ? "." : String.fromCharCode(buffer[i]);
+    }
+    return result + " " + chars;
+  }
+
 }
 
 
@@ -909,7 +928,7 @@ function ModifiedType(key, value, underlying) {
 }
 
 
-function StructType() {
+function StructType(union) {
 
   function Field(nam, val, typ) {
     this.name = nam;
@@ -963,6 +982,7 @@ function StructType() {
     if (isnull(context)) context = { modifiers: {}, defaults: {}, scope: [] };
     var formerstate = pushScope(context);
     var result = "{\n";
+    if (union) result = "union " + result;
     for (var i = 0; i < fields.length; ++i) 
       result += fields[i].toString(context) + "\n";
     popScope(context, formerstate);
@@ -972,14 +992,27 @@ function StructType() {
   this.deconstruct = function (context) {
     var formerstate = pushScope(context);
     var result = context.scope[0];
+    var wasbitten = context.bitten;
     for (var i = 0; i < fields.length; ++i) {
-      var field = fields[i];
-      var type = field.type(context);
-      var value = field.type(context).deconstruct(context);
-      field.verifyValue(value, context);
-      if (!isnull(field.name))
-        result[field.name] = value;
+      try {
+        var field = fields[i];
+        var type = field.type(context);
+        var value = field.type(context).deconstruct(context);
+        field.verifyValue(value, context);
+        if (union) {
+          result = value;
+          break;
+        }
+        if (!isnull(field.name))
+          result[field.name] = value;
+      } catch (e) {
+        if (!(e instanceof DeconError)) throw e;
+        if (!union) throw e;
+        context.bitten = wasbitten;
+      }
     }
+    if (union && i >= fields.length) 
+      throw new DeconError("No input matching union", context);
     popScope(context, formerstate);
     return (context.result = result);
   }
