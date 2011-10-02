@@ -319,6 +319,8 @@ function DeconParser(text) {
     }
   };
 
+  var modifiers = ["size", "at", "select", "check"];
+
   var parseType = this.parseType = function() {
     var type = tryToParseType();
     if (isnull(type)) throw new SyntaxError("Type expected");
@@ -326,20 +328,16 @@ function DeconParser(text) {
   };
 
   function tryToParseType() {
-    if (tryToTake("unsigned")) {
+    if (modifiers.indexOf(is(T.IDENTIFIER)) >= 0) {
+      return new ModifiedType(take(T.IDENTIFIER), parseValue(), parseType());
+    } else if (tryToTake("unsigned")) {
       return new ModifiedType("signed", makeValue(false), parseType());
     } else if (tryToTake("signed")) {
       return new ModifiedType("signed", makeValue(true), parseType());
-    } else if (tryToTake("size")) {
-      return new ModifiedType("size", parseValue(), parseType());
     } else if (tryToTake("bigendian")) {
       return new ModifiedType("bigendian", makeValue(true), parseType());
     } else if (tryToTake("littleendian")) {
       return new ModifiedType("bigendian", makeValue(false), parseType());
-    } else if (tryToTake("at")) {
-      return new ModifiedType("at", parseValue(), parseType());
-    } else if (tryToTake("select")) {
-      return new ModifiedType("select", parseValue(), parseType());
     }
 
     if (is("union") || is("{")) {
@@ -372,20 +370,16 @@ function DeconParser(text) {
 
     for (;;) {
       if (tryToTake(".")) {
-        if (tryToTake("unsigned")) {
+        if (modifiers.indexOf(is(T.IDENTIFIER)) >= 0) {
+          result = new ModifiedType(take(T.IDENTIFIER), parseValue(), result);
+        } else if (tryToTake("unsigned")) {
           result = new ModifiedType("signed", makeValue(false), result);
         } else if (tryToTake("signed")) {
           result = new ModifiedType("signed", makeValue(true), result);
-        } else if (tryToTake("size")) {
-          result = new ModifiedType("size", parseValue(), result);
         } else if (tryToTake("bigendian")) {
           result = new ModifiedType("bigendian", makeValue(true), result);
         } else if (tryToTake("littleendian")) {
           result = new ModifiedType("bigendian", makeValue(false), result);
-        } else if (tryToTake("at")) {
-          result = new ModifiedType("at", parseValue(), result);
-        } else if (tryToTake("select")) {
-          result = new ModifiedType("select", parseValue(), result);
         } else {
           throw new SyntaxError("Invalid type modifier");
         }
@@ -821,6 +815,7 @@ function ArrayType(element, optLen) {
     context.result = null;
     if (this.index)
       context.scope.unshift({});
+    context.scope[0].this = context.scope[0];
     var isstr = element.isAscii(context);
     var result = isstr ? "" : [];
     for (var i = 0; ; ++i) {
@@ -914,6 +909,26 @@ function AtomicType(basis) {
 }
 
 
+function equal(a, b) {
+  if (a === b) return true;
+  
+  if (typeof a !== typeof b) return false;
+  
+  if (typeof a !== 'object') return false;
+  
+  for (var i in a) {
+    if (a.hasOwnProperty(i)) {
+      if (!b.hasOwnProperty(i)) return false;
+      if (!equal(a[i], b[i])) return false;
+    }
+  }
+  for (var i in b) 
+    if (b.hasOwnProperty(i) && !a.hasOwnProperty(i)) return false;
+  
+  return true;
+}
+
+
 function ModifiedType(key, value, underlying) {
   this.key = key;
   this.value = value;
@@ -923,6 +938,7 @@ function ModifiedType(key, value, underlying) {
     // Base doesn't get modified
     return this.underlying.isAscii(context);
   }
+
 
   this.toString = function (context) {
     if (["at", "select"].indexOf(this.key) >= 0) {
@@ -956,9 +972,22 @@ function ModifiedType(key, value, underlying) {
       var result = this.underlying.deconstruct(context);
       context.scope.unshift(result);
       result = this.value.value(context);
-      context.scope.shift(result);
+      context.scope.shift();
       return result;
     }
+
+    if (this.key === "check") {
+      var result = this.underlying.deconstruct(context);
+      context.scope.unshift(result);
+      context.scope.unshift({this:result});
+      var check = this.value.value(context);
+      context.scope.shift();
+      context.scope.shift();
+      if (!check)
+        throw new DeconError("Failed check: " + inspect(result) +
+                             " <> " + this.value.toString(context));
+      return result;
+    }      
 
     if (!isnull(context.modifiers[this.key])) {
       return this.underlying.deconstruct(context);
@@ -1127,7 +1156,7 @@ function ExpressionValue(left, operator, right) {
       case "-":  result -= rvalue;  break;
       case "*":  result *= rvalue;  break;
       case "/":  result /= rvalue;  break;
-      case "=":  result = result === rvalue;  break;
+      case "=":  result = equal(result, rvalue);  break;
       case ":":  var r = {};  r[result] = rvalue;  result = r;  break;
       case ",":  for (var k in rvalue) 
                    if (rvalue.hasOwnProperty(k)) result[k] = rvalue[k];
