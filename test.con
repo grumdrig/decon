@@ -12,6 +12,17 @@ Main: {
   at 0 Test6 test6
   at 0 Test7 test7
   at 0 Test8 test8
+  at 0 Test9 test9
+  at 0 Test10 test10
+  at 0 Test11 test11
+  at 0 Test12 test12
+  at 0 Test13 test13
+  at 0 Test14 test14
+  at 0 Test15 test15
+  at 0 Test16 test16
+  at 0 Test17 test17
+  at 0 Test18 test18
+  at 0 Test19 test19
 }
 
 
@@ -93,3 +104,28 @@ Test8: {
   char a
   char b
 }.select(a)  
+
+
+check: bool.size(0).select(true)  # TODO: make official?
+Test9: union {
+  {check (2 = 3); char shouldnt}
+  {check ("t" = "t"); char[2] should}
+  "#abc"
+}
+
+# Recursive def'n
+Test10: union {
+  {"#"; Test10 pound}
+  {"a" a}
+}
+  
+
+Test11: {}
+Test12: {}
+Test13: {}
+Test14: {}
+Test15: {}
+Test16: {}
+Test17: {}
+Test18: {}
+Test19: {}

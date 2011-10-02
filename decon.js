@@ -59,7 +59,7 @@ function TokenMatcher(input) {
                        +"([ \t]*(?:#.*)?)"         // 1. spaces & comments before
                        +"("                        // 2. any token: (
                        +  "([\\r\\n;])"            // 3.   \n
-                       +  "|\"(.*)\""              // 4.   quoted
+                       +  "|\"(.*?)\""              // 4.   quoted
                        +  "|'(.*)'"                // 5.   single-quoted
                        +  "|([_a-zA-Z]\\w*)"       // 6.   identifier
                        +  "|0[xX]([0-9a-fA-F]+)"   // 7.   hex constant
@@ -214,6 +214,8 @@ TYPES["cstring"].until = makeValue("0");
 
 var CONSTANTS = {};
 CONSTANTS["null"] = makeValue(null);
+CONSTANTS["false"] = makeValue(false);
+CONSTANTS["true"] = makeValue(true);
 
 function DeconParser(text) {
 
@@ -465,7 +467,7 @@ function DeconParser(text) {
   }
 
 
-  var operators = "/*+-.[".split("");
+  var operators = "/*+-.[=".split("");
 
   function parseExpression() {
     var r = tryToParseExpression();
@@ -568,6 +570,11 @@ function main() {
     var tree = Main.deconstructFile(infile, partialok);
   } catch (de) {
     if (de instanceof DeconError) {
+      if (isnull(de.context)) {
+        console.error("NO CONTEXT!");
+        de.context = { bitten: -1, xxd: function () {} };
+      }
+          
       // TODO print some more context
       console.error("DECON ERROR (@" + de.context.bitten + "): " +
                     de.problem);
@@ -740,7 +747,15 @@ function ReferenceType(name) {
   }
 
   this.toString = function (context) {
-    return this.dereference(context).toString(context);
+    if (!isnull(context) && context.scope.indexOf(name) >= 0) {
+      return name;
+    } else {
+      if (isnull(context)) context = { modifiers: {}, defaults: {}, scope: [] };
+      context.scope.unshift(name);
+      var result = this.dereference(context).toString(context);
+      context.scope.shift();
+      return result;
+    }
   }
 
   this.deconstruct = function(context) {
@@ -1097,6 +1112,7 @@ function ExpressionValue(left, operator, right) {
       case "-":  result -= rvalue;  break;
       case "*":  result *= rvalue;  break;
       case "/":  result /= rvalue;  break;
+      case "=":  result = result === rvalue;  break;
       default: throw new DeconError("Internal Error: unknown operator", context);
       }
     }
