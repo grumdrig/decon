@@ -338,7 +338,9 @@ function DeconParser(text) {
       return new ModifiedType("bigendian", makeValue(false), parseType());
     } else if (tryToTake("at")) {
       return new ModifiedType("at", parseValue(), parseType());
-    } 
+    } else if (tryToTake("select")) {
+      return new ModifiedType("select", parseValue(), parseType());
+    }
 
     if (is("union") || is("{")) {
       // Struct/union      
@@ -382,6 +384,8 @@ function DeconParser(text) {
           result = new ModifiedType("bigendian", makeValue(false), result);
         } else if (tryToTake("at")) {
           result = new ModifiedType("at", parseValue(), result);
+        } else if (tryToTake("select")) {
+          result = new ModifiedType("select", parseValue(), result);
         } else {
           throw new SyntaxError("Invalid type modifier");
         }
@@ -430,7 +434,7 @@ function DeconParser(text) {
       return new LiteralValue(parseInt(hex, 16),
                               new ModifiedType("size",
                                                makeValue(4 * hex.length), 
-                                               new ReferenceType("uint")));
+                                               new ReferenceType("byte")));
 
     } else if (is(T.SINGLEQUOTED)) {
       // TODO: deal with endianness and type-specifying and all that
@@ -440,7 +444,7 @@ function DeconParser(text) {
         value = (value << 8) + (0xFF & s.charCodeAt(i));
       return new LiteralValue(value, new ModifiedType("size", 
                                                       makeValue(8 * s.length),
-                                                     new ReferenceType("uint")));
+                                                     new ReferenceType("byte")));
 
     } else if (is(T.QUOTED)) {
       var value = JSON.parse('"' + take(T.QUOTED) + '"');
@@ -503,7 +507,7 @@ function main() {
   var submains = [];
   var a = 0;
   var partialok = null;
-  var verbose = null;
+  var verbose = 0;
   var variable;
   var infile = '/dev/stdin';
   var outfile = null;
@@ -515,7 +519,7 @@ function main() {
       partialok = true;
 
     } else if (arg == "-v") {
-      verbose = true;
+      ++verbose;
 
     } else if (arg == "-V") {
       variable = args[++a];
@@ -550,10 +554,12 @@ function main() {
 
   try {
     if (verbose) {
-      console.error("TYPES:");
-      for (var k in TYPES)
-        if (TYPES.hasOwnProperty(k))
-          console.error(k + ": " + TYPES[k]);
+      if (verbose > 1) {
+        console.error("TYPES:");
+        for (var k in TYPES)
+          if (TYPES.hasOwnProperty(k))
+            console.error(k + ": " + TYPES[k]);
+      }
 
       console.error("MAIN:");
       console.error("" + Main);
@@ -889,8 +895,8 @@ function ModifiedType(key, value, underlying) {
   }
 
   this.toString = function (context) {
-    if (this.key === "at") {
-      return this.underlying.toString(context) + ".at(" + 
+    if (["at", "select"].indexOf(this.key) >= 0) {
+      return this.underlying.toString(context) + "." + this.key + "(" + 
              this.value.toString(context) + ")";
     }
       
@@ -916,6 +922,14 @@ function ModifiedType(key, value, underlying) {
       return this.underlying.deconstruct(context);
     }
 
+    if (this.key === "select") {
+      var result = this.underlying.deconstruct(context);
+      context.scope.unshift(result);
+      result = this.value.value(context);
+      context.scope.shift(result);
+      return result;
+    }
+
     if (!isnull(context.modifiers[this.key])) {
       return this.underlying.deconstruct(context);
     } else {
@@ -925,6 +939,7 @@ function ModifiedType(key, value, underlying) {
       var result = this.underlying.deconstruct(context);
       
       context.modifiers[this.key] = formervalue;
+
       return result;
     }
   }

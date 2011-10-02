@@ -11,6 +11,7 @@ Main: {
   at 0 Test5 test5
   at 0 Test6 test6
   at 0 Test7 test7
+  at 0 Test8 test8
 }
 
 
@@ -83,4 +84,12 @@ Test7: {
   char[until '#']
   int32 'ABCD'
   int64 'EFGHIJKL'
+  char mmmmhmmm
 }
+
+
+Test8: {
+  char pound
+  char a
+  char b
+}.select(a)  
