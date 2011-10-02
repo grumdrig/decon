@@ -1,8 +1,6 @@
 
 // TODO: change some parseValue's to parseExpression?
 // TODO: get rid of "base"?
-// TODO: make numerics default to size 8 so byte and int will be
-//       unsigned and signed bytes
 
 var fs = require("fs");
 var inspect = require("util").inspect;
@@ -455,7 +453,7 @@ function DeconParser(text) {
 
     } else if (!infield && is(T.IDENTIFIER)) {
       return new ReferenceValue(take(T.IDENTIFIER));
-      
+
     } else if (tryToTake("(")) {
       var result = parseExpression();
       take(")");
@@ -477,7 +475,24 @@ function DeconParser(text) {
   }
 
   function tryToParseExpression() {
-    var result = tryToParseValue();
+    var result;
+    if (tryToTake("{")) {
+      for (;;) {
+        var key = parseValue();
+        take(":");
+        var value = parseValue();
+        var pair = new ExpressionValue(key, ":", value);
+        if (isnull(result))
+          result = pair;
+        else
+          result = new ExpressionValue(result, ",", pair);
+        if (tryToTake("}")) break;
+        take(",");
+      }
+      return result;
+    }
+
+    result = tryToParseValue();
 
     // TODO associativity rules
     if (!isnull(result)) while(operators.indexOf(is(T.PUNCTUATION)) >= 0) {
@@ -1081,7 +1096,7 @@ function ReferenceValue(name) {
 
   function dereference(context) {
     for (var s = 0; s < context.scope.length; ++s)
-      if (!isnull(context.scope[s][name]))
+      if (!isnull(context.scope[s]) && !isnull(context.scope[s][name]))
         return makeValue(context.scope[s][name]);
     var result = CONSTANTS[name];
     if (isnull(result))
@@ -1113,6 +1128,10 @@ function ExpressionValue(left, operator, right) {
       case "*":  result *= rvalue;  break;
       case "/":  result /= rvalue;  break;
       case "=":  result = result === rvalue;  break;
+      case ":":  var r = {};  r[result] = rvalue;  result = r;  break;
+      case ",":  for (var k in rvalue) 
+                   if (rvalue.hasOwnProperty(k)) result[k] = rvalue[k];
+                 break;
       default: throw new DeconError("Internal Error: unknown operator", context);
       }
     }

@@ -106,7 +106,7 @@ Test8: {
 }.select(a)  
 
 
-check: bool.size(0).select(true)  # TODO: make official?
+check: null.select(true)  # TODO: make official?
 Test9: union {
   {check (2 = 3); char shouldnt}
   {check ("t" = "t"); char[2] should}
@@ -120,7 +120,15 @@ Test10: union {
 }
   
 
-Test11: {}
+Test11: {
+  char key1
+  char value1
+  char key2
+  char value2
+  null.select({key1:value1}) map1
+  null.select({key1:value1, key2:value2}) map2
+}
+
 Test12: {}
 Test13: {}
 Test14: {}
