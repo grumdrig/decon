@@ -116,7 +116,7 @@ An example of a union:
 
 Which would process input
  
-    "diameter:\212\015\000\000satellite:phobos\000satellite:diemos\000"
+    "diameter:\212\015\000\000satellite:Phobos\000satellite:Deimos\000"
 
 into
 
