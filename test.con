@@ -2,6 +2,7 @@
 #ABCDEFGHIJKLMNOPQRSTUVWXYZ
 #19191919191919191919191919
 #[one][two][three]OK
+#>ĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂ<
 
 Main: {
   at 0 Test1 test1
@@ -138,8 +139,25 @@ Test12: char.check(this = "#")
 Test13: byte[3].equals ['#', 'a', 'b']
 
 
-Test14: {}
-Test15: {}
+Test14: { 
+  char[through 'z']
+  char "\n" newline
+}
+
+
+Test15: {
+  char[through '>']
+  char ahornc
+  byte ahornb
+  int16 i16
+  uint16 u16
+  int32 i32
+  uint32 u32
+  int64 i64
+  uint64 u64
+}
+
+
 Test16: {}
 Test17: {}
 Test18: {}

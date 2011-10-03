@@ -4,9 +4,31 @@ decon.js: Binary file deconstructor
 In tandem with a file giving its structure, decon.js deconstructs
 binary data into a JSON structure.
 
+For example, deconstructing [a very tiny PNG file]
+(http://garethrees.org/2007/11/14/pngcrush/) using this definition:
 
-Construction file grammar
--------------------------
+    PNG: bigendian {
+      byte[8] ([137,80,78,71,13,10,26,10]) signature
+      Chunk[] chunks
+    }.select(chunks)
+
+    Chunk: {
+      uint32 length
+      char[4] type
+      byte[length] data
+      byte[4] crc
+    }
+
+produces this output:
+
+    [ { length: 13, type: 'IHDR', data: [ 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0 ], crc: [ 31, 21, 196, 137 ] },
+      { length: 10, type: 'IDAT', data: [ 120, 156, 99, 0, 1, 0, 0, 5, 0, 1 ], crc: [ 13, 10, 45, 180 ] },
+      { length: 0, type: 'IEND', data: [], crc: [ 174, 66, 96, 130 ] } ]
+
+
+
+Deconstruction definition file grammar
+--------------------------------------
 
 A construction file consists of any number of import statements and
 type and constant definitions. An import statement such as
@@ -19,16 +41,15 @@ Type statments give a name to a specified type and take the form
 
     TypeName: TYPESPEC
 
-where TYPESPEC is either a type name, a structure type specification,
+where `TYPESPEC` is either a type name, a structure type specification,
 an array type specification, or a numeric type specification.
 
 The elemental atomic types are `byte`, `bool`, `char` and `null`, on
 which futher atomic types may be based by applying modifiers, either
-as prefixen or dotted suffixen. (TODO: Settle on one syntax or the
-other)
+as prefixen or dotted suffixen. 
 
     uint: int.unsigned
-    uword: unsigned size(2) int
+    uword: unsigned size(16) int
 
 Legal modifiers are `signed`, `unsigned`, `bigendian`, `littleendian`,
 and `size N` for some value `N`, which gives the size in bits of the

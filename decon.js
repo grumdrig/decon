@@ -1,6 +1,8 @@
 
 // TODO: change some parseValue's to parseExpression?
 // TODO: get rid of "base"?
+// TODO: bigint. see https://github.com/substack/node-bigint
+//                or https://github.com/dankogai/js-math-bigint
 
 var fs = require("fs");
 var inspect = require("util").inspect;
@@ -57,8 +59,8 @@ function TokenMatcher(input) {
                        +"([ \t]*(?:#.*)?)"         // 1. spaces & comments before
                        +"("                        // 2. any token: (
                        +  "([\\r\\n;])"            // 3.   \n
-                       +  "|\"(.*?)\""             // 4.   quoted
-                       +  "|'(.*?)'"               // 5.   single-quoted
+                       +  '|"((?:[^"\\\\]|\\\\.)*)"'   // 4.   quoted
+                       +  "|'((?:[^'\\\\]|\\\\.)*)'"   // 5.   single-quoted
                        +  "|([_a-zA-Z]\\w*)"       // 6.   identifier
                        +  "|0[xX]([0-9a-fA-F]+)"   // 7.   hex constant
                        +  "|("+intRegex+")"        // 8.   numerical constant
@@ -131,33 +133,37 @@ function testMatch(input, expected) {
 }
 
 function testParseValue(input, expected) {
-  try {
-    var p = new DeconParser(input);
-    var d = p.parseValue();
-  } catch (e) {
-    if (e instanceof SyntaxError)
-      console.error("Numeric test parse error ["+e.problem+"] '" + input + "'");
-    else
-      throw e;
-    process.exit(-7);
-  }
+  var d = parse(input, "value");
+
+  /*
   if (!p.is(T.EOF)) {
     console.error("Numeric test parse dangling stuff for '" + input + "'");
     process.exit(-8);
   }
-  if (Math.abs(d - expected) > 0.0001) {
-    console.error("Unexpected numeric " + d + " expected " + expected + " for '" + input + "'");
+  */
+  var context = { modifiers: {}, defaults: {}, scope: [] };
+  if (!equal(d.value(context), expected)) {
+    console.error("Unexpected value " + d.toString(context) + " expected " + 
+                  inspect(expected) + " for " + inspect(input));
     process.exit(-9);
   }
 }
 
-var assert = require("assert").ok;
+var assert = require("assert")
 
 function runTests() {
-  assert(isnull(runTests['nothing']));
-  assert(!isnull(runTests));
-  assert(isnull(null));
-  assert(isnull(undefined));
+  assert.equal(evalString("egg$"), "egg$");
+  assert.equal(evalString("\\r\\n"), "\r\n");
+  assert.equal(evalString("\\x7").charCodeAt(0), 7);
+  assert.equal(evalString("\\7").charCodeAt(0), 7);
+  assert.equal(evalString("\\007\\008").charCodeAt(0), 7);
+  assert.equal(evalString("\\007\\010").charCodeAt(1), 8);
+  assert.equal(evalString("\\b").charCodeAt(0), 8);
+  
+  assert.ok(isnull(runTests['nothing']));
+  assert.ok(!isnull(runTests));
+  assert.ok(isnull(null));
+  assert.ok(isnull(undefined));
 
   testMatch("lcid", [ T.IDENTIFIER ]);
   testMatch("UcId", [ T.IDENTIFIER ]);
@@ -182,6 +188,7 @@ function runTests() {
   testParseValue("(-2*3/26)", -2*3/26);
   testParseValue("0x20", 32);
   testParseValue("' '", 32);
+  testParseValue("\"\r\n\"", "\r\n");
   
   return true;
 }
@@ -414,7 +421,7 @@ function DeconParser(text) {
   var parseValue = this.parseValue = function (infield) {
     var r = tryToParseValue(infield);
     if (isnull(r))
-      throw new SyntaxError("Numeric value expected");
+      throw new SyntaxError("Value expected");
     return r;
   }
 
@@ -432,7 +439,7 @@ function DeconParser(text) {
 
     } else if (is(T.SINGLEQUOTED)) {
       // TODO: deal with endianness and type-specifying and all that
-      var s = JSON.parse('"' + take(T.SINGLEQUOTED) + '"');
+      var s = evalString(take(T.SINGLEQUOTED));
       var value = 0;
       for (var i = 0; i < s.length; ++i)
         value = (value << 8) + (0xFF & s.charCodeAt(i));
@@ -441,7 +448,7 @@ function DeconParser(text) {
                                                      new ReferenceType("byte")));
 
     } else if (is(T.QUOTED)) {
-      var value = JSON.parse('"' + take(T.QUOTED) + '"');
+      var value = evalString(take(T.QUOTED));
       return new LiteralValue(value, new ArrayType(new ReferenceType("char"), 
                                                    makeValue(value.length)));
 
@@ -515,6 +522,8 @@ String.prototype.endsWith = function(suffix) {
 
 
 function main() {
+  runTests();
+
   var args = process.argv.slice(2);
   var Main;
   var mainname;
@@ -560,9 +569,6 @@ function main() {
     }
   }
   
-  if (runTests() && verbose)
-    console.error("PASS");
-
   if (isnull(Main))
     usage("No main type specified");
 
@@ -591,6 +597,7 @@ function main() {
       console.error("DECON ERROR (@" + de.context.bitten + "): " +
                     de.problem);
       console.error(de.context.xxd());
+      console.error(de.context.stack);
       console.error(de.stack);
       process.exit(-2);
     } else {
@@ -633,9 +640,51 @@ function readFile(filename) {
   }
 }
 
+function evalString(s) {
+  // Evaluate escape sequences in string s
+  var result = "";
+  for (var i = 0; i < s.length; ++i) {
+    var c = s[i];
+    if (c === '\\') {
+      switch(s[++i]) {
+      case 'b':  result += '\b';  break;
+      case 'f':  result += '\f';  break;
+      case 'n':  result += '\n';  break;
+      case 'r':  result += '\r';  break;
+      case 't':  result += '\r';  break;
+        // TODO: these aren't very robust
+      case 'u':  
+        result += String.fromCharCode(parseInt(s.substr(++i, 4), 16));  
+        i += 3;  
+        break;
+      case '0':
+      case '1':
+      case '2':
+      case '3':
+      case '4':
+      case '5':
+      case '6':
+      case '7':
+        result += String.fromCharCode(parseInt(s.substr(i, 3), 8));
+        i += 2;  
+        break;
+      case 'x':  
+        result += String.fromCharCode(parseInt(s.substr(++i, 2), 16));
+        i += 1;  
+        break;
+      default:   result += c;     break;
+      }
+    } else {
+      result += c;
+    }
+  }
+  return result;
+}
+
+
 var parseFile = exports.import = function (filename) {
   var program = readFile(filename);
-  assert(program);
+  assert.ok(!isnull(program));
   try {
     var p = new DeconParser(program);
     p.go();
@@ -658,6 +707,8 @@ var parse = exports.parse = function (string, what) {
     var p = new DeconParser(string);
     if (what == "type")
       return p.parseType();
+    else if (what === "value")
+      return p.parseValue();
     else
       p.go();
   } catch (e) {
@@ -680,6 +731,7 @@ function Context(buffer) {
   this.modifiers = {};
   this.defaults = {};
   this.scope = [];
+  this.stack = [];
 
   this.bite = function () {
     return buffer[this.bitten++];
@@ -704,8 +756,9 @@ function Context(buffer) {
     for (var i = this.bitten; i < this.bitten + 16 && i < buffer.length; ++i) {
       if (buffer[i] < 16) result += '0';
       result += buffer[i].toString(16);
-      if ((i & 1) == 0) result += ' ';
-      chars += buffer[i] < 32 ? "." : String.fromCharCode(buffer[i]);
+      if (((i-this.bitten) & 1) == 1) result += ' ';
+      chars += (buffer[i] < 32 || buffer[i] >= 128) ? "." : 
+        String.fromCharCode(buffer[i]);
     }
     return result + " " + chars;
   }
@@ -759,22 +812,25 @@ function ReferenceType(name) {
   }
 
   this.toString = function (context) {
-    if (!isnull(context) && context.scope.indexOf(name) >= 0) {
+    if (!isnull(context) && context.stack.indexOf(name) >= 0) {
       return name;
     } else {
-      if (isnull(context)) context = { modifiers: {}, defaults: {}, scope: [] };
-      context.scope.unshift(name);
+      if (isnull(context)) context = new Context();
+      context.stack.unshift(name);
       var result = this.dereference(context).toString(context);
-      context.scope.shift();
+      context.stack.shift();
       return result;
     }
   }
 
   this.deconstruct = function(context) {
     var t = TYPES[name];
+    context.stack.unshift(name);
     if (isnull(t))
       throw new DeconError("Undefined type " + name, context);
-    return t.deconstruct(context);
+    var result = t.deconstruct(context);
+    context.stack.shift();
+    return result;
   }
 
   this.isAscii = function (context) {
@@ -823,14 +879,18 @@ function ArrayType(element, optLen) {
     for (var i = 0; ; ++i) {
       if (this.index)
         context.scope[0][this.index] = i;
-      if (context.eof()) break;
       if (!isnull(this.length)) {
         var count = this.length.value(context)
         if (typeof count != typeof 1)
           throw new DeconError("Invalid array length: " + 
                                inspect(count), context);
         if (i >= count) break;
+        if (context.eof()) 
+          throw new DeconError("EOF deconstructing array after " + i + " of " +
+                               count + " elements", context);
       }
+      if (context.eof())
+        break;
       if (equals(this.before, context.peek(), context)) break;
       var v = element.deconstruct(context);
       if (equals(this.until, context.result, context)) break;
@@ -1084,7 +1144,7 @@ function StructType(union) {
         var field = fields[i];
         var type = field.type(context);
         var value = field.type(context).deconstruct(context);
-        if (!isnull(field.value(context)) && field.value(context) !== value) {
+        if (!isnull(field.value(context)) && !equal(field.value(context),value)){
           context.bitten = unbitten;
           throw new DeconError("Non-matching value. Expected: " + 
                                inspect(field.value(context)) + ", got:" + 
