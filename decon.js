@@ -319,7 +319,7 @@ function DeconParser(text) {
     }
   };
 
-  var modifiers = ["size", "at", "select", "check"];
+  var modifiers = ["size", "at", "select", "check", "equals"];
 
   var parseType = this.parseType = function() {
     var type = tryToParseType();
@@ -985,6 +985,19 @@ function ModifiedType(key, value, underlying) {
       context.scope.shift();
       if (!check)
         throw new DeconError("Failed check: " + inspect(result) +
+                             " <> " + this.value.toString(context));
+      return result;
+    }      
+
+    if (this.key === "equals") {
+      var result = this.underlying.deconstruct(context);
+      context.scope.unshift(result);
+      context.scope.unshift({this:result});
+      var check = this.value.value(context);
+      context.scope.shift();
+      context.scope.shift();
+      if (!equal(check, result))
+        throw new DeconError("Failed equality check: " + inspect(result) +
                              " <> " + this.value.toString(context));
       return result;
     }      

@@ -48,7 +48,7 @@ Test3: {
   "LMNOP"
   char Q
   TString "RST" totee
-}
+}.check(Q = "Q")
 terminator = char 'T'
 TString: char[through terminator]
 
@@ -103,15 +103,17 @@ Test8: {
   char pound
   char a
   char b
-}.select(a)  
+}.select(a).equals "a"
 
 
 czech: null.select(true)  # TODO: make official?
 Test9: union {
+  {check (1 = 3) null; char oughtnt}
   {czech (2 = 3); char shouldnt}
+  {equals "N" char wouldnt}
   {czech ("t" = "t"); char[2] should}
   "#abc"
-}.check(this = {"should":"#a"})
+}.equals {"should":"#a"}
 
 # Recursive def'n
 Test10: union {
@@ -127,7 +129,7 @@ Test11: {
   char value2
   null.select {key1:value1} map1
   null.select {key1:value1, key2:value2} map2
-}.select(map2).check(this = {"b":"c","#":"a"})
+}.select(map2).equals {"b":"c","#":"a"}
 
 Test12: char.check(this = "#")
 
