@@ -120,7 +120,7 @@ Which would process input
 
 into
 
-   { facts: [{moon: "phobos"}, {moon: "diemos"}, {diameter: 6794}] }
+    { facts: [{moon: "Phobos"}, {moon: "Deimos"}, {diameter: 6794}] }
 
 
 Usage
