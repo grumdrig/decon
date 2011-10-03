@@ -131,9 +131,13 @@ Test11: {
   null.select {key1:value1, key2:value2} map2
 }.select(map2).equals {"b":"c","#":"a"}
 
+
 Test12: char.check(this = "#")
 
-Test13: {}
+
+Test13: byte[3].equals ['#', 'a', 'b']
+
+
 Test14: {}
 Test15: {}
 Test16: {}

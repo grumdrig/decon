@@ -57,8 +57,8 @@ function TokenMatcher(input) {
                        +"([ \t]*(?:#.*)?)"         // 1. spaces & comments before
                        +"("                        // 2. any token: (
                        +  "([\\r\\n;])"            // 3.   \n
-                       +  "|\"(.*?)\""              // 4.   quoted
-                       +  "|'(.*)'"                // 5.   single-quoted
+                       +  "|\"(.*?)\""             // 4.   quoted
+                       +  "|'(.*?)'"               // 5.   single-quoted
                        +  "|([_a-zA-Z]\\w*)"       // 6.   identifier
                        +  "|0[xX]([0-9a-fA-F]+)"   // 7.   hex constant
                        +  "|("+intRegex+")"        // 8.   numerical constant
@@ -454,6 +454,14 @@ function DeconParser(text) {
         if (tryToTake("}")) break;
       }
       return new MapValue(keys, values);
+
+    } else if (tryToTake("[")) {
+      var values = [];
+      if (!tryToTake("]")) for (;; take(",")) {
+        values.push(parseExpression());
+        if (tryToTake("]")) break;
+      }
+      return new ArrayValue(values);
 
     } else if (!infield && is(T.IDENTIFIER)) {
       return new ReferenceValue(take(T.IDENTIFIER));
@@ -1151,7 +1159,7 @@ function MapValue(keys, values) {
   }
 
   this.type = function (context) {
-    return ReferenceType("null");  // TODO, I suppose?
+    return new ReferenceType("null");  // TODO, I suppose?
   }
 
   this.toString = function (context) {
@@ -1161,6 +1169,29 @@ function MapValue(keys, values) {
       result += keys[i].toString(context) + ":" + values[i].toString(context);
     }
     return result + "}";
+  }
+}
+
+
+function ArrayValue(values) {
+  this.value = function (context) {
+    var result = [];
+    for (var i = 0; i < values.length; ++i)
+      result.push(values[i].value(context));
+    return result;
+  }
+
+  this.type = function (context) {
+    return new ArrayType(new ReferenceType("null"));  // TODO, I suppose?
+  }
+
+  this.toString = function (context) {
+    var result = "[" + values.length + ":";
+    for (var i = 0; i < values.length; ++i) {
+      if (i > 0) result += ", ";
+      result += values[i].toString(context);
+    }
+    return result + "]";
   }
 }
 
@@ -1195,7 +1226,7 @@ function ExpressionValue(left, operator, right) {
   }
 
   this.type = function (context) {
-    return ReferenceType("null");  // frankly, this would be a mess.
+    return new ReferenceType("null");  // frankly, this would be a mess.
   }
 
   this.toString = function (context) {
