@@ -1,4 +1,4 @@
-
+#!/usr/bin/env node
 // TODO: change some parseValue's to parseExpression?
 // TODO: get rid of "base"?
 // TODO: bigint. see https://github.com/substack/node-bigint
