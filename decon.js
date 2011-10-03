@@ -208,7 +208,7 @@ TYPES["int32"] = modref("size", 32, "sbyte");
 TYPES["int64"] = modref("size", 64, "sbyte");
 
 TYPES["cstring"] = new ArrayType(new ReferenceType("char"));
-TYPES["cstring"].until = makeValue("0");
+TYPES["cstring"].until = makeValue(0);
 
 var CONSTANTS = {};
 CONSTANTS["null"] = makeValue(null);
@@ -445,6 +445,22 @@ function DeconParser(text) {
       return new LiteralValue(value, new ArrayType(new ReferenceType("char"), 
                                                    makeValue(value.length)));
 
+    } else if (tryToTake("{")) {
+      var result;
+      for (;;) {
+        var key = parseValue();
+        take(":");
+        var value = parseValue();
+        var pair = new ExpressionValue(key, ":", value);
+        if (isnull(result))
+          result = pair;
+        else
+          result = new ExpressionValue(result, ",", pair);
+        if (tryToTake("}")) break;
+        take(",");
+      }
+      return result;
+
     } else if (!infield && is(T.IDENTIFIER)) {
       return new ReferenceValue(take(T.IDENTIFIER));
 
@@ -470,21 +486,6 @@ function DeconParser(text) {
 
   function tryToParseExpression() {
     var result;
-    if (tryToTake("{")) {
-      for (;;) {
-        var key = parseValue();
-        take(":");
-        var value = parseValue();
-        var pair = new ExpressionValue(key, ":", value);
-        if (isnull(result))
-          result = pair;
-        else
-          result = new ExpressionValue(result, ",", pair);
-        if (tryToTake("}")) break;
-        take(",");
-      }
-      return result;
-    }
 
     result = tryToParseValue();
 
@@ -609,7 +610,7 @@ function main() {
   if (isnull(outfile))
     console.log(tree);
   else
-    fs.writeFile(outfile, prefix + tree + suffix);
+    fs.writeFile(outfile, tree);
 }
 
 
@@ -815,7 +816,6 @@ function ArrayType(element, optLen) {
     context.result = null;
     if (this.index)
       context.scope.unshift({});
-    context.scope[0].this = context.scope[0];
     var isstr = element.isAscii(context);
     var result = isstr ? "" : [];
     for (var i = 0; ; ++i) {

@@ -111,25 +111,25 @@ Test9: union {
   {czech (2 = 3); char shouldnt}
   {czech ("t" = "t"); char[2] should}
   "#abc"
-}
+}.check(this = {"should":"#a"})
 
 # Recursive def'n
 Test10: union {
   {"#"; Test10 pound}
   {"a" a}
 }
-  
+ 
 
 Test11: {
   char key1
   char value1
   char key2
   char value2
-  null.select({key1:value1}) map1
-  null.select({key1:value1, key2:value2}) map2
-}.select(map2).check(this = ({"b":"c","#":"a"}))
+  null.select {key1:value1} map1
+  null.select {key1:value1, key2:value2} map2
+}.select(map2).check(this = {"b":"c","#":"a"})
 
-Test12: char.check("#")
+Test12: char.check(this = "#")
 
 Test13: {}
 Test14: {}

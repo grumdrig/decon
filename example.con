@@ -1,4 +1,3 @@
-import "standard.con"
 
 Look: {
   uint16[0x200]         offsets
@@ -6,13 +5,9 @@ Look: {
   byte                  eof
 }
 
-# This version produces finalized parse (or would if it worked)
 Look2: {
-  uint16[0x200] _offsets
-  #description at(_offsets[tile]) CString[index(tile) before(0x1a)]
-  byte[]
-}
+  uint16[0x200] offsets
+  CString.at(offsets[tile])[index tile 0x200] descriptions
+}.select(descriptions)
 
-TERMINATOR = 0 char
- 
-CString: char[until TERMINATOR]
+CString: char[until 0]
