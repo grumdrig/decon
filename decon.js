@@ -446,20 +446,14 @@ function DeconParser(text) {
                                                    makeValue(value.length)));
 
     } else if (tryToTake("{")) {
-      var result;
-      for (;;) {
-        var key = parseValue();
+      var keys = [], values = [];
+      if (!tryToTake("}")) for (;; take(",")) {
+        keys.push(parseExpression());
         take(":");
-        var value = parseValue();
-        var pair = new ExpressionValue(key, ":", value);
-        if (isnull(result))
-          result = pair;
-        else
-          result = new ExpressionValue(result, ",", pair);
+        values.push(parseExpression());
         if (tryToTake("}")) break;
-        take(",");
       }
-      return result;
+      return new MapValue(keys, values);
 
     } else if (!infield && is(T.IDENTIFIER)) {
       return new ReferenceValue(take(T.IDENTIFIER));
@@ -1148,6 +1142,30 @@ function ReferenceValue(name) {
 }
 
 
+function MapValue(keys, values) {
+  this.value = function (context) {
+    var result = {};
+    for (var i = 0; i < keys.length; ++i)
+      result[keys[i].value(context)] = values[i].value(context);
+    return result;
+  }
+
+  this.type = function (context) {
+    return ReferenceType("null");  // TODO, I suppose?
+  }
+
+  this.toString = function (context) {
+    var result = "{";
+    for (var i = 0; i < keys.length; ++i) {
+      if (i > 0) result += ", ";
+      result += keys[i].toString(context) + ":" + values[i].toString(context);
+    }
+    return result + "}";
+  }
+}
+
+
+
 function ExpressionValue(left, operator, right) {
   this.value = function (context) {
     var result = left.value(context);
@@ -1170,10 +1188,6 @@ function ExpressionValue(left, operator, right) {
       case "*":  result *= rvalue;  break;
       case "/":  result /= rvalue;  break;
       case "=":  result = equal(result, rvalue);  break;
-      case ":":  var r = {};  r[result] = rvalue;  result = r;  break;
-      case ",":  for (var k in rvalue) 
-                   if (rvalue.hasOwnProperty(k)) result[k] = rvalue[k];
-                 break;
       default: throw new DeconError("Internal Error: unknown operator", context);
       }
     }
