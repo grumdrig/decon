@@ -27,8 +27,8 @@ produces this output:
 
 
 
-Deconstruction definition file grammar
---------------------------------------
+Deconstruction definition grammar
+---------------------------------
 
 A construction file consists of any number of import statements and
 type and constant definitions. An import statement such as
@@ -128,11 +128,19 @@ Usage
 
 From the command line, usage is
 
-    node decon.js [DEF.con...] MAIN [IN [OUT]]
+    node decon.js [OPTIONS] [DEF.con...] MAIN
 
 where `MAIN` is the root type, defined in some `.con` file listed,
-used to parse the binary file `IN` (or read from stdin). The resulting
-JSON structure is written to the name OUT` file, or stdout.
+used to parse a binary file, and write the resulting JSON structure.
+
+OPTIONS are
+
+* `-p`      Partial parsing of the input is okay
+* `-v`      Verbose: print extra debugging information
+* `-V VAR`  Produce JavaScript (prepend `var VAR = `)
+* `-i FILE` Read from the named file rather than `stdin`
+* `-o FILE` Write to the named file rather than `stdout`
+* `-h`      Produce somewhat more human-readable output
 
 Within node, use, for example:
 
