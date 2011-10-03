@@ -1,0 +1,40 @@
+# Construction of a RIFF WAV file
+
+ID: byte[4]
+
+RiffFile: unsigned size(32) {
+  "RIFF"             # File signature
+  uint       rlen    # The length of the data in the next chunk
+  WaveFormat format
+  DataChunk  data
+}
+
+# The WAVE Form Definition
+
+WaveFormat size(16) {
+  "WAVE"
+  'fmt '               # WAVEFORMAT tag
+  short fLen           # length of data in the format chunk
+  short wFormatTag     # (pcm = 1)
+  short nChannels      # (mono=1, stereo=2)
+  short nSamplesPerSec # Playback frequency
+  short nAvgBytesPerSec
+  short nBlockAlign
+  short wBitsPerSample
+  short cbSize
+  byte[cbSize] extraBytes 
+}
+
+# The Data Chunk
+
+sample: unsigned.size(FormatChunk.wBitsPerSample / 8);
+
+datum: sample[(format.nChannels)]
+
+	
+DataChunk: {
+  "data"
+  dLen	# Length of data in the dData field
+  dData datum[(dLen/format.wBitsPerSample)]  # The actual waveform data
+}
+

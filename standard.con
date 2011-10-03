@@ -1,9 +1,0 @@
-int8: int.size 8
-int16: int.size 16
-int32: int.size 32
-
-uint: byte.unsigned.size(32)
-
-uint8: uint.size 8
-uint16: uint.size 16
-uint32: uint.size 32

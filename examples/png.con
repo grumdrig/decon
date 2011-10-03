@@ -1,0 +1,12 @@
+PNG: bigendian {
+  byte[8] ([137,80,78,71,13,10,26,10]) signature
+  Chunk[] chunks
+}.select(chunks)
+
+Chunk: {
+  uint32 length
+  char[4] type
+  byte[length] data
+  byte[4] crc
+}
+
