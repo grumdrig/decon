@@ -1290,24 +1290,25 @@ function modref(attr, val, ref) {
   return new ModifiedType(attr, makeValue(val), new ReferenceType(ref));
 }
 
-var TYPES = {};
-TYPES["null"] = new AtomicType({base: 0, size: 0});
-TYPES["bool"] = new AtomicType({base: 2});
-TYPES["char"] = new AtomicType({base: 256});
-TYPES["byte"] = new AtomicType({});
+var TYPES = {
+  null: new AtomicType({base: 0, size: 0}),
+  bool: new AtomicType({base: 2}),
+  char: new AtomicType({base: 256}),
+  byte: new AtomicType({}),
 
-TYPES["uint8"]  = modref("size",  8, "byte");
-TYPES["uint16"] = modref("size", 16, "byte");
-TYPES["uint32"] = modref("size", 32, "byte");
-TYPES["uint64"] = modref("size", 64, "byte");
+  uint8:  modref("size",  8, "byte"),
+  uint16: modref("size", 16, "byte"),
+  uint32: modref("size", 32, "byte"),
+  uint64: modref("size", 64, "byte"),
 
-TYPES["sbyte"] = modref("signed", true, "byte");
-TYPES["int8"]  = modref("size",  8, "sbyte");
-TYPES["int16"] = modref("size", 16, "sbyte");
-TYPES["int32"] = modref("size", 32, "sbyte");
-TYPES["int64"] = modref("size", 64, "sbyte");
+  sbyte: modref("signed", true, "byte"),
+  int8:  modref("size",  8, "sbyte"),
+  int16: modref("size", 16, "sbyte"),
+  int32: modref("size", 32, "sbyte"),
+  int64: modref("size", 64, "sbyte"),
 
-TYPES["cstring"] = new ArrayType(new ReferenceType("char"));
+  cstring: new ArrayType(new ReferenceType("char"))
+}
 TYPES["cstring"].until = makeValue(0);
 
 var CONSTANTS = {
