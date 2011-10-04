@@ -554,7 +554,7 @@ function main() {
       }
 
       console.error("MAIN:");
-      console.error("" + Main);
+      console.error(Main.toString(new Context()));
     }
 
     var tree = Main.deconstructFile(infile, partialok);
@@ -704,6 +704,7 @@ function Context(buffer) {
   this.defaults = {};
   this.scope = [];
   this.stack = [];
+  this.indent = 0;
 
   this.bite = function () {
     return buffer[this.bitten++];
@@ -779,7 +780,7 @@ function ReferenceType(name) {
     } else {
       if (isnull(context)) context = new Context();
       context.stack.unshift(name);
-      var result = this.dereference(context).toString(context);
+      var result = name + ":" + this.dereference(context).toString(context);
       context.stack.shift();
       return result;
     }
@@ -1057,9 +1058,9 @@ function StructType(union) {
     }
 
     this.toString = function (context) {
-      return ((isnull(nam) ? "" : nam + " ") + 
+      return (this.type(context).toString(context) + " " +
               (isnull(val) ? "" : val.toString(context) + " ") + 
-              this.type(context).toString(context));
+              (isnull(nam) ? "" : nam));
     }
   }
   
@@ -1076,6 +1077,7 @@ function StructType(union) {
         context.defaults[k] = context.modifiers[k];
     context.modifiers = {};
     context.scope.unshift({});
+    context.indent++;
     return state;
   }
 
@@ -1083,6 +1085,7 @@ function StructType(union) {
     context.defaults = state[0];
     context.modifiers = state[1];
     context.scope.shift();
+    context.indent--;
   }
 
   this.toString = function (context) {
@@ -1091,9 +1094,10 @@ function StructType(union) {
     var result = "{\n";
     if (union) result = "union " + result;
     for (var i = 0; i < fields.length; ++i) 
-      result += fields[i].toString(context) + "\n";
+      result +=  new Array(context.indent + 1).join("  ") +
+        fields[i].toString(context) + "\n";
     popScope(context, formerstate);
-    return result + "}";
+    return result + new Array(context.indent + 1).join("  ")  + "}";
   }
 
   this.deconstruct = function (context) {
@@ -1306,10 +1310,11 @@ TYPES["int64"] = modref("size", 64, "sbyte");
 TYPES["cstring"] = new ArrayType(new ReferenceType("char"));
 TYPES["cstring"].until = makeValue(0);
 
-var CONSTANTS = {};
-CONSTANTS["null"]  = makeValue(null);
-CONSTANTS["false"] = makeValue(false);
-CONSTANTS["true"]  = makeValue(true);
+var CONSTANTS = {
+  null:  makeValue(null),
+  false: makeValue(false),
+  true:  makeValue(true)
+}
 
 
 if (require.main === module) {
