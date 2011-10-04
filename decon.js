@@ -193,34 +193,6 @@ function runTests() {
   return true;
 }
 
-function modref(attr, val, ref) {
-  return new ModifiedType(attr, makeValue(val), new ReferenceType(ref));
-}
-
-var TYPES = {};
-TYPES["null"] = new AtomicType({base: 0, size: 0});
-TYPES["bool"] = new AtomicType({base: 2});
-TYPES["char"] = new AtomicType({base: 256});
-TYPES["byte"] = new AtomicType({});
-
-TYPES["uint8"]  = modref("size",  8, "byte");
-TYPES["uint16"] = modref("size", 16, "byte");
-TYPES["uint32"] = modref("size", 32, "byte");
-TYPES["uint64"] = modref("size", 64, "byte");
-
-TYPES["sbyte"] = modref("signed", true, "byte");
-TYPES["int8"]  = modref("size",  8, "sbyte");
-TYPES["int16"] = modref("size", 16, "sbyte");
-TYPES["int32"] = modref("size", 32, "sbyte");
-TYPES["int64"] = modref("size", 64, "sbyte");
-
-TYPES["cstring"] = new ArrayType(new ReferenceType("char"));
-TYPES["cstring"].until = makeValue(0);
-
-var CONSTANTS = {};
-CONSTANTS["null"] = makeValue(null);
-CONSTANTS["false"] = makeValue(false);
-CONSTANTS["true"] = makeValue(true);
 
 function DeconParser(text) {
 
@@ -761,47 +733,37 @@ function Context(buffer) {
         String.fromCharCode(buffer[i]);
     }
     return result + " " + chars;
-  }
+  };
 
 }
 
 
 
-function Type() {
-  this.dereference = function (context) { return this; }
+function Type() {}
 
-  this.deconstructFile = function (filename, partialok) {
-    var inbuf = fs.readFileSync(filename);
-    var context = new Context(inbuf);
-    var result = this.deconstruct(context);
-    if (isnull(partialok)) partialok = context.adjusted;
-    if (!partialok && !context.eof())
-      throw new DeconError("Unconsumed data at end of file", context);
-    return result;
-  }
+Type.prototype.deconstructFile = function (filename, partialok) {
+  var inbuf = fs.readFileSync(filename);
+  var context = new Context(inbuf);
+  var result = this.deconstruct(context);
+  if (isnull(partialok)) partialok = context.adjusted;
+  if (!partialok && !context.eof())
+    throw new DeconError("Unconsumed data at end of file", context);
+  return result;
+};
 
-  this.isAscii = function (context) { return false; }
-}
+Type.prototype.isAscii = function (context) { return false; };
 
-Type.sire = function (Child) {
-  //Child.prototype = new Type();
-  //Child.prototype.constructor = Child;
-  var t = new Type();
-  for (var k in t)
-    if (t.hasOwnProperty(k))
-      Child.prototype[k] = t[k];
-}
+Type.prototype.dereference = function (context) { return this; };
 
-Type.sire(ReferenceType);
-Type.sire(ArrayType);
-Type.sire(AtomicType);
-Type.sire(ModifiedType);
-Type.sire(StructType);
 
+ReferenceType.prototype = new Type();
+ArrayType.prototype = new Type();
+AtomicType.prototype = new Type();
+ModifiedType.prototype = new Type();
+StructType.prototype = new Type();
 
 
 function ReferenceType(name) {
-
   this.name = name;
   
   this.dereference = function (context) {
@@ -809,7 +771,7 @@ function ReferenceType(name) {
     if (isnull(result)) throw new DeconError("Undefined type " + name, context);
     result = result.dereference(context);
     return result;
-  }
+  };
 
   this.toString = function (context) {
     if (!isnull(context) && context.stack.indexOf(name) >= 0) {
@@ -821,7 +783,7 @@ function ReferenceType(name) {
       context.stack.shift();
       return result;
     }
-  }
+  };
 
   this.deconstruct = function(context) {
     var t = TYPES[name];
@@ -831,12 +793,12 @@ function ReferenceType(name) {
     var result = t.deconstruct(context);
     context.stack.shift();
     return result;
-  }
+  };
 
   this.isAscii = function (context) {
     var t = this.dereference(context);
     return isnull(t) ? false : t.isAscii(context);
-  }    
+  };   
 }
 
 
@@ -858,7 +820,7 @@ function ArrayType(element, optLen) {
     if (!isnull(this.before)) 
       terms.push("before " + this.before.toString(context));
     return ("" + element.toString(context) + "[" + terms.join(" ") + "]");
-  }
+  };
 
   function equals(terminator, value, context) {
     if (isnull(terminator)) return false;
@@ -927,7 +889,7 @@ function AtomicType(basis) {
 
   this.isAscii = function (context) {
     return base(context) == 256;
-  }
+  };
 
   this.toString = function (context) {
     var result = (signed(context) ? "i" : "u") + size(context);
@@ -938,7 +900,7 @@ function AtomicType(basis) {
     case 256: result += "c";  break;
     }
     return result;
-  }
+  };
 
   function negateByte(v) {
     // two's complement
@@ -967,7 +929,7 @@ function AtomicType(basis) {
     else if (base(context) === 0)
       context.result = null;
     return context.result;
-  }
+  };
 }
 
 
@@ -1008,7 +970,7 @@ function ModifiedType(key, value, underlying) {
              this.value.toString(context) + ")";
     }
       
-    if (isnull(context)) context = { modifiers: {}, defaults: {}, scope: [] };
+    if (isnull(context)) context = new Context();
 
     if (!isnull(context.modifiers[this.key])) {
       return this.underlying.toString(context);
@@ -1124,7 +1086,7 @@ function StructType(union) {
   }
 
   this.toString = function (context) {
-    if (isnull(context)) context = { modifiers: {}, defaults: {}, scope: [] };
+    if (isnull(context)) context = new Context();
     var formerstate = pushScope(context);
     var result = "{\n";
     if (union) result = "union " + result;
@@ -1318,6 +1280,36 @@ function makeValue(value) {
     return new LiteralValue(value, new ReferenceType("object"));
   }
 }
+
+
+function modref(attr, val, ref) {
+  return new ModifiedType(attr, makeValue(val), new ReferenceType(ref));
+}
+
+var TYPES = {};
+TYPES["null"] = new AtomicType({base: 0, size: 0});
+TYPES["bool"] = new AtomicType({base: 2});
+TYPES["char"] = new AtomicType({base: 256});
+TYPES["byte"] = new AtomicType({});
+
+TYPES["uint8"]  = modref("size",  8, "byte");
+TYPES["uint16"] = modref("size", 16, "byte");
+TYPES["uint32"] = modref("size", 32, "byte");
+TYPES["uint64"] = modref("size", 64, "byte");
+
+TYPES["sbyte"] = modref("signed", true, "byte");
+TYPES["int8"]  = modref("size",  8, "sbyte");
+TYPES["int16"] = modref("size", 16, "sbyte");
+TYPES["int32"] = modref("size", 32, "sbyte");
+TYPES["int64"] = modref("size", 64, "sbyte");
+
+TYPES["cstring"] = new ArrayType(new ReferenceType("char"));
+TYPES["cstring"].until = makeValue(0);
+
+var CONSTANTS = {};
+CONSTANTS["null"]  = makeValue(null);
+CONSTANTS["false"] = makeValue(false);
+CONSTANTS["true"]  = makeValue(true);
 
 
 if (require.main === module) {
