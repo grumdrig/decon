@@ -2,7 +2,7 @@
 
 ID: byte[4]
 
-RiffFile: littleendian {
+WavFile: littleendian {
   "RIFF"      # RIFF file signature
   uint32      chunkSize
   "WAVE"      # WAVE format tag
