@@ -2,39 +2,55 @@
 
 ID: byte[4]
 
-RiffFile: unsigned size(32) {
-  "RIFF"             # File signature
-  uint       rlen    # The length of the data in the next chunk
-  WaveFormat format
-  DataChunk  data
+RiffFile: littleendian {
+  "RIFF"      # RIFF file signature
+  uint32      chunkSize
+  "WAVE"      # WAVE format tag
+  WaveFormat  format
+  DataChunk   data
+  MiscChunk[] other
 }
 
-# The WAVE Form Definition
+WAVE_FORMAT_PCM = 1
 
-WaveFormat size(16) {
-  "WAVE"
-  'fmt '               # WAVEFORMAT tag
-  short fLen           # length of data in the format chunk
-  short wFormatTag     # (pcm = 1)
-  short nChannels      # (mono=1, stereo=2)
-  short nSamplesPerSec # Playback frequency
-  short nAvgBytesPerSec
-  short nBlockAlign
-  short wBitsPerSample
-  short cbSize
-  byte[cbSize] extraBytes 
+WaveFormat: {
+  "fmt "                # WAVE format tag
+  uint32 fLen           # length of data in the format chunk
+  uint16 (WAVE_FORMAT_PCM) encoding
+  uint16 nChannels      # (mono=1, stereo=2)
+  uint32 nSamplesPerSec # Playback frequency
+  uint32 nAvgBytesPerSec
+  uint16 nBlockAlign
+  uint16 wBitsPerSample
+  if (fLen > 16) uint16 cbSize         # 0 or 22
+  if (fLen > 18) {
+    uint16 wValidBitsPerSample
+    uint32 dwChannelMask
+    byte[16] subFormat
+  } extended
 }
 
 # The Data Chunk
 
-sample: unsigned.size(FormatChunk.wBitsPerSample / 8);
-
-datum: sample[(format.nChannels)]
-
-	
 DataChunk: {
   "data"
-  dLen	# Length of data in the dData field
-  dData datum[(dLen/format.wBitsPerSample)]  # The actual waveform data
+  uint32 dLen	# Length of data in the chunk
+  datum[8 * dLen/(format.wBitsPerSample)] dData  #  waveform  data 
+  if (dLen & 1) byte # padding
+}.select(dData)
+
+datum: union {
+  check(format.nChannels = 1) sample
+  check(format.nChannels = 2) {sample left, right}
+}
+	
+sample: union {
+  check ((format.wBitsPerSample) = 8) byte
+  size(format.wBitsPerSample)  sbyte
 }
 
+MiscChunk: {
+  char[4] chunkId
+  uint32  length
+  byte[length] data
+}

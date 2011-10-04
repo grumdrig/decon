@@ -49,7 +49,7 @@ var fpRegex =
 
 var intRegex = "[+-]?[0-9]+";
 //var punctRegex = "[-!#$%&()\\*\\+,\\./:;<=>?@\\[\\\\]^_`{|}~]";
-var punctRegex = "[-\\.*/+={}\\[\\]():]";
+var punctRegex = "[-\\.*/+={}\\[\\]():<>&|]";
                 
 
 function TokenMatcher(input) {
@@ -178,7 +178,7 @@ function runTests() {
   testMatch("=", [ T.PUNCTUATION ]);
   testMatch("* =", [ T.PUNCTUATION, T.PUNCTUATION ]);
   testMatch(" { } ", [ T.PUNCTUATION, T.PUNCTUATION ]);
-  testMatch(" <> ", [ T.ILLEGAL, T.ILLEGAL ]);
+  testMatch(" $$ ", [ T.ILLEGAL, T.ILLEGAL ]);
   
   testParseValue("0", 0);
   testParseValue("6", 6);
@@ -298,7 +298,7 @@ function DeconParser(text) {
     }
   };
 
-  var modifiers = ["size", "at", "select", "check", "equals"];
+  var modifiers = ["size", "at", "select", "check", "equals", "if"];
 
   var parseType = this.parseType = function() {
     var type = tryToParseType();
@@ -456,7 +456,7 @@ function DeconParser(text) {
   }
 
 
-  var operators = "/*+-.[=".split("");
+  var operators = "/*+-.[=<>&|".split("");
 
   function parseExpression() {
     var r = tryToParseExpression();
@@ -570,6 +570,7 @@ function main() {
                     de.problem);
       console.error(de.context.xxd());
       console.error(de.context.stack);
+      console.error(de.context.scope);
       console.error(de.stack);
       process.exit(-2);
     } else {
@@ -748,7 +749,7 @@ Type.prototype.deconstructFile = function (filename, partialok) {
   var result = this.deconstruct(context);
   if (isnull(partialok)) partialok = context.adjusted;
   if (!partialok && !context.eof())
-    throw new DeconError("Unconsumed data at end of file", context);
+    throw new DeconError("Unconsumed data [" + (context.length() - context.bitten) + "] at end of file", context);
   return result;
 };
 
@@ -1014,6 +1015,13 @@ function ModifiedType(key, value, underlying) {
       return result;
     }      
 
+    if (this.key === "if") {
+      if (this.value.value(context)) 
+        return this.underlying.deconstruct(context);
+      else
+        return undefined;
+    }      
+
     if (this.key === "equals") {
       var result = this.underlying.deconstruct(context);
       context.scope.unshift(result);
@@ -1244,7 +1252,11 @@ function ExpressionValue(left, operator, right) {
       case "-":  result -= rvalue;  break;
       case "*":  result *= rvalue;  break;
       case "/":  result /= rvalue;  break;
+      case "&":  result &= rvalue;  break;
+      case "|":  result |= rvalue;  break;
       case "=":  result = equal(result, rvalue);  break;
+      case ">":  result = (result > rvalue);  break;
+      case "<":  result = (result < rvalue);  break;
       default: throw new DeconError("Internal Error: unknown operator", context);
       }
     }
