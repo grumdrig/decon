@@ -82,7 +82,7 @@ function TokenMatcher(input) {
   this.group = function (n) { return this.match && this.match[n || 0]; }
   
   this.lookingAt = function () { 
-    return this.find();//re.test(this.input.substr(this.pos));
+    return this.find();
   }
 
   this.pos = 0;
@@ -278,12 +278,24 @@ function DeconParser(text) {
         // import
         var filename = take(T.QUOTED);
         parseFile(filename);
+
+      } else if (tryToTake("<")) {
+        take("script"); take(">");
+        var match = /^([\s\S]*?)<\/script>/
+          .exec(tokenMatcher.input.substr(tokenMatcher.pos));
+        if (isnull(match)) throw new SyntaxError("Missing </script>");
+        tokenMatcher.pos += match[0].length;
+        var script = match[1];
+        process.binding("evals").Script.runInNewContext(script, GLOBALS);
+        advance();
+
       } else {
         var name = take(T.IDENTIFIER);
         if (tryToTake(":")) {
           // Type def
           var type = parseType();
           TYPES[name] = type;
+
         } else {
           // Constant def
           take("=");
@@ -298,7 +310,14 @@ function DeconParser(text) {
     }
   };
 
-  var modifiers = ["size", "at", "select", "check", "equals", "if"];
+  var MODIFIERS = ["size", "at", "select", "check", "equals", "if", "load", 
+                   "deconstruct"];
+  var UNARYMODS = {
+    unsigned: ["signed", false],
+    signed: ["signed", true],
+    bigendian: ["bigendian", true],
+    littleendian: ["bigendian", false]
+  };
 
   var parseType = this.parseType = function() {
     var type = tryToParseType();
@@ -307,16 +326,11 @@ function DeconParser(text) {
   };
 
   function tryToParseType() {
-    if (modifiers.indexOf(is(T.IDENTIFIER)) >= 0) {
+    if (MODIFIERS.indexOf(is(T.IDENTIFIER)) >= 0) {
       return new ModifiedType(take(T.IDENTIFIER), parseValue(), parseType());
-    } else if (tryToTake("unsigned")) {
-      return new ModifiedType("signed", makeValue(false), parseType());
-    } else if (tryToTake("signed")) {
-      return new ModifiedType("signed", makeValue(true), parseType());
-    } else if (tryToTake("bigendian")) {
-      return new ModifiedType("bigendian", makeValue(true), parseType());
-    } else if (tryToTake("littleendian")) {
-      return new ModifiedType("bigendian", makeValue(false), parseType());
+    } else if (!isnull(UNARYMODS[is(T.IDENTIFIER)])) {
+      var m = UNARYMODS[take(T.IDENTIFIER)];
+      return new ModifiedType(m[0], makeValue(m[1]), parseType());
     }
 
     if (is("union") || is("{")) {
@@ -349,18 +363,14 @@ function DeconParser(text) {
 
     for (;;) {
       if (tryToTake(".")) {
-        if (modifiers.indexOf(is(T.IDENTIFIER)) >= 0) {
+        if (MODIFIERS.indexOf(is(T.IDENTIFIER)) >= 0) {
           result = new ModifiedType(take(T.IDENTIFIER), parseValue(), result);
-        } else if (tryToTake("unsigned")) {
-          result = new ModifiedType("signed", makeValue(false), result);
-        } else if (tryToTake("signed")) {
-          result = new ModifiedType("signed", makeValue(true), result);
-        } else if (tryToTake("bigendian")) {
-          result = new ModifiedType("bigendian", makeValue(true), result);
-        } else if (tryToTake("littleendian")) {
-          result = new ModifiedType("bigendian", makeValue(false), result);
         } else {
-          throw new SyntaxError("Invalid type modifier");
+          var mname = take(T.IDENTIFIER);
+          var m = UNARYMODS[mname];
+          if (isnull(m))
+            throw new SyntaxError("Invalid type modifier: " + mname);
+          result = new ModifiedType(m[0], makeValue(m[1]), result);
         }
       } else if (tryToTake("[")) {
         result = new ArrayType(result);
@@ -456,7 +466,7 @@ function DeconParser(text) {
   }
 
 
-  var operators = "/*+-.[=<>&|".split("");
+  var operators = "/*+-.[=<>&|(".split("");
 
   function parseExpression() {
     var r = tryToParseExpression();
@@ -476,6 +486,16 @@ function DeconParser(text) {
       if (operator === "[") {
         var rhs = parseExpression();
         take("]");
+      } else if (operator === "(") {
+        var rhs = [];
+        if (!tryToTake(")")) {
+          for (;;) {
+            rhs.push(parseExpression());
+            if (!tryToTake(","))
+              break;
+          }
+          take(")");
+        }
       } else {
         var rhs = parseValue();
       }
@@ -703,7 +723,7 @@ function Context(buffer) {
   this.result = null;
   this.modifiers = {};
   this.defaults = {};
-  this.scope = [];
+  this.scope = [GLOBALS];
   this.stack = [];
   this.indent = 0;
 
@@ -997,7 +1017,9 @@ function ModifiedType(key, value, underlying) {
     if (this.key === "select") {
       var result = this.underlying.deconstruct(context);
       context.scope.unshift(result);
+      context.scope.unshift({this:result});
       result = this.value.value(context);
+      context.scope.shift();
       context.scope.shift();
       return result;
     }
@@ -1033,7 +1055,19 @@ function ModifiedType(key, value, underlying) {
         throw new DeconError("Failed equality check: " + inspect(result) +
                              " <> " + this.value.toString(context));
       return result;
-    }      
+    }
+
+    if (this.key === "deconstruct") {
+      // TODO: no one even asked for this feature
+      var c2 = new Context(new Buffer(this.value.value(context)));
+      return this.underlying.deconstruct(c2);
+    }
+
+    if (this.key === "load") { 
+      // TODO: don't know about this feature. Kind of breaks the model.
+      var filename = this.value.value(context);
+      return this.underlying.deconstructFile(filename);
+    }
 
     if (!isnull(context.modifiers[this.key])) {
       return this.underlying.deconstruct(context);
@@ -1243,6 +1277,12 @@ function ExpressionValue(left, operator, right) {
       // Index
       var index = right.value(context);
       result = result[index];
+    } else if (operator === "(") {
+      // Function call
+      var args = [];
+      for (var i = 0; i < right.length; ++i)
+        args[i] = right[i].value(context);
+      result = result.apply(context.result, args);
     } else {
       // Arithmetic
       var rvalue = right.value(context);
@@ -1270,6 +1310,8 @@ function ExpressionValue(left, operator, right) {
   this.toString = function (context) {
     if (operator === "[")
       return left.toString(context) + "[" + right.toString(context) + "]";
+    else if (operator === "(")
+      return left.toString(context) + "(...)";// + right.toString(context) + ")";
     else
       return "(" + left.toString(context) + " " + operator + " " + 
                   right.toString(context) + ")";
@@ -1327,8 +1369,10 @@ var CONSTANTS = {
   null:  makeValue(null),
   false: makeValue(false),
   true:  makeValue(true)
-}
+};
 
+var GLOBALS = {
+};
 
 if (require.main === module) {
   main();

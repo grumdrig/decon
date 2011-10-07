@@ -157,8 +157,28 @@ Test15: {
   uint64 u64
 }
 
+<script>
+function double(x) {
+  return x + x;
+}
+function triplethis() {
+  return this + this + this;
+}
+</script>
 
-Test16: {}
-Test17: {}
+Test16: {
+  char
+  char[3].select(double(this)) "abcabc" abcabc
+  char[2].select(triplethis()) "dedede" de3
+}
+
+
+Test17: {
+  OtherFile.deconstruct("ZYXWandetc") another
+  OtherFile.load("examples/test.con") other
+}
+OtherFile: { char[3][3] threeStrings; byte[] }
+
+
 Test18: {}
 Test19: {}
