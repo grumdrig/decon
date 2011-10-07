@@ -49,7 +49,7 @@ var fpRegex =
 
 var intRegex = "[+-]?[0-9]+";
 //var punctRegex = "[-!#$%&()\\*\\+,\\./:;<=>?@\\[\\\\]^_`{|}~]";
-var punctRegex = "[-\\.*/+={}\\[\\]():<>&|]";
+var punctRegex = "[\\.{}\\[\\]()]";
                 
 
 function TokenMatcher(input) {
@@ -64,9 +64,10 @@ function TokenMatcher(input) {
                        +  "|([_a-zA-Z]\\w*)"       // 6.   identifier
                        +  "|0[xX]([0-9a-fA-F]+)"   // 7.   hex constant
                        +  "|("+intRegex+")"        // 8.   numerical constant
-                       +  "|("+punctRegex+")"      // 9.   punctuation
-                       +  "|($)"                   // 10.  EOF
-                       +  "|(.)"                   // 11.  illegal
+                       +  "|([-*/+=:<>&|]+)"       // 9.   operators
+                       +  "|("+punctRegex+")"      // 10.   punctuation
+                       +  "|($)"                   // 11.  EOF
+                       +  "|(.)"                   // 12.  illegal
                        +")");                      //    ) 
 
   this.find = function () {
@@ -98,9 +99,10 @@ var T = {
   IDENTIFIER   : 6,
   HEXNUMBER    : 7,
   NUMBER       : 8,
-  PUNCTUATION  : 9,
-  EOF          : 10,
-  ILLEGAL      : 11
+  OPERATOR     : 9,
+  PUNCTUATION  : 10,
+  EOF          : 11,
+  ILLEGAL      : 12
 };
 
 // Reverse-lookup of token types
@@ -174,11 +176,13 @@ function runTests() {
   testMatch(";", [ T.NEWLINE ]);
   testMatch("0x0", [ T.HEXNUMBER ]);
   testMatch("0XABC", [ T.HEXNUMBER ]);
-  testMatch("*", [ T.PUNCTUATION ]);
-  testMatch("=", [ T.PUNCTUATION ]);
-  testMatch("* =", [ T.PUNCTUATION, T.PUNCTUATION ]);
-  testMatch(" { } ", [ T.PUNCTUATION, T.PUNCTUATION ]);
+  testMatch("*", [ T.OPERATOR ]);
+  testMatch("=", [ T.OPERATOR ]);
+  testMatch("* =", [ T.OPERATOR, T.OPERATOR ]);
+  testMatch(" {} ", [ T.PUNCTUATION, T.PUNCTUATION ]);
   testMatch(" $$ ", [ T.ILLEGAL, T.ILLEGAL ]);
+  testMatch("{key:value}", [T.PUNCTATION, T.IDENTIFER, T.OPERATOR, T.IDENTIFIER,
+                            T.PUNCTUATION]);
   
   testParseValue("0", 0);
   testParseValue("6", 6);
@@ -466,7 +470,7 @@ function DeconParser(text) {
   }
 
 
-  var operators = "/*+-.[=<>&|(".split("");
+  var operators = "/*+-.[=<>&|(".split("").concat([">>", "<<"]);
 
   function parseExpression() {
     var r = tryToParseExpression();
@@ -481,8 +485,8 @@ function DeconParser(text) {
     result = tryToParseValue();
 
     // TODO associativity rules
-    if (!isnull(result)) while(operators.indexOf(is(T.PUNCTUATION)) >= 0) {
-      var operator = take(T.PUNCTUATION);
+    if (!isnull(result)) while(operators.indexOf(is(T.TOKEN)) >= 0) {
+      var operator = take();
       if (operator === "[") {
         var rhs = parseExpression();
         take("]");
