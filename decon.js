@@ -439,11 +439,15 @@ function DeconParser(text) {
                                                    makeValue(value.length)));
 
     } else if (tryToTake("{")) {
+      // Object literal
       var keys = [], values = [];
+      maybeTakeNewlines();
       if (!tryToTake("}")) for (;; take(",")) {
+        maybeTakeNewlines();
         keys.push(parseExpression());
         take(":");
         values.push(parseExpression());
+        maybeTakeNewlines();
         if (tryToTake("}")) break;
       }
       return new MapValue(keys, values);
@@ -630,8 +634,9 @@ function usage(msg) {
 function readFile(filename) {
   try {
     return fs.readFileSync(filename, 'utf8');
-  } catch (IOException) {
+  } catch (e) {
     console.error("Error reading file: '" + filename + "'");
+    console.log(e);
     process.exit(1);
     return null;
   }
@@ -768,7 +773,7 @@ function Context(buffer) {
 function Type() {}
 
 Type.prototype.deconstructFile = function (filename, partialok) {
-  var inbuf = fs.readFileSync(filename);
+  var inbuf = readFile(filename);
   var context = new Context(inbuf);
   var result = this.deconstruct(context);
   if (isnull(partialok)) partialok = context.adjusted;
