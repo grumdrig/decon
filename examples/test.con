@@ -39,6 +39,10 @@ Test1: {
 
 
 Test2: {
+  at(1) littleendian int8 'a' a
+  at(1) bigendian    int8 'a' a_
+  at(1) littleendian int16 'ba' ba
+  at(1) bigendian    int16 'ab' ab
   at(1) littleendian int32 'dcba' dcba
   at(1) bigendian    int32 'abcd' abcd
 }
@@ -179,6 +183,28 @@ Test17: {
 }
 OtherFile: { char[3][3] threeStrings; byte[] }
 
+<script>
+function thebits() {
+  var r = [];
+  for (var i = 7; i >= 0; --i)
+    r.push(this >> i & 1);
+  return r;
+}
+function thenibbles() {
+  return [this >> 4, this & 0xf];
+}
+</script>
 
-Test18: {}
-Test19: {}
+Test18: {
+  byte.at(0).select(thebits()) bpound;
+  bit[8].at(0) (bpound) pound;
+  byte.at(1).select(thenibbles()) na;
+  nibble[2].at(1) (na) a;
+}
+bit: size 1 byte;
+nibble: size 4 byte;
+
+Test19: {
+  bit[8][8][2] somebits;
+  null.select(position) (0x10) pos;
+}

@@ -737,6 +737,7 @@ function Context(buffer) {
   this.indent = 0;
 
   this.bite = function () {
+
     return buffer[this.bitten++];
   }
 
@@ -745,7 +746,7 @@ function Context(buffer) {
   }
     
   this.eof = function () {
-    return this.bitten >= buffer.length;
+    return this.bitten >= buffer.length && isnull(this.bits);
   }
 
   this.length = function () {
@@ -773,12 +774,12 @@ function Context(buffer) {
 function Type() {}
 
 Type.prototype.deconstructFile = function (filename, partialok) {
-  var inbuf = readFile(filename);
+  var inbuf = fs.readFileSync(filename);
   var context = new Context(inbuf);
   var result = this.deconstruct(context);
   if (isnull(partialok)) partialok = context.adjusted;
   if (!partialok && !context.eof())
-    throw new DeconError("Unconsumed data [" + (context.length() - context.bitten) + "] at end of file", context);
+    throw new DeconError("Unconsumed data [" + (context.length() - context.bitten) + "] at end of file " + filename, context);
   return result;
 };
 
@@ -939,18 +940,37 @@ function AtomicType(basis) {
   }
 
   this.deconstruct = function (context) {
+    var siz = size(context);
+    if (siz > 8 && siz & 0x7) 
+      throw new DeconError("Size " + siz + " data not implemented", context);
     context.result = 0;
-    for (var i = 0; i < size(context); i += 8) {
-      var v = context.bite();
-      if (bigendian(context)) {
-        if (signed(context) && i === 0 && (v & 0x80)) 
-          v = negateByte(v);
-        context.result <<= 8;
-        context.result += v;
+    for (var i = 0; siz > 0; i += 8) {
+      if (!isnull(context.bits) || siz < 8) {
+        var v = 0;
+        while (siz > 0) {
+          if (!context.bits) context.bits = {bits: context.bite(), length: 8};
+          var mask = 1 << (context.bits.length-1);
+          v = (v << 1) | ((context.bits.bits & mask) ? 1 : 0);
+          if (--context.bits.length === 0)
+            context.bits = null;
+          //else
+          //  context.bits.bits >>= 1;
+          --siz;
+        }
+        context.result = v;
       } else {
-        if (signed(context) && i === size(context) - 8 && (v & 0x80)) 
-          v = negateByte(v);
-        context.result |= v << i;
+        var v = context.bite();
+        siz -= 8;
+        if (bigendian(context)) {
+          if (signed(context) && i === 0 && (v & 0x80)) 
+            v = negateByte(v);
+          context.result <<= 8;
+          context.result += v;
+        } else {
+          if (signed(context) && i === size(context) - 8 && (v & 0x80)) 
+            v = negateByte(v);
+          context.result |= v << i;
+        }
       }
     }
     if (base(context) === 256) 
@@ -1220,6 +1240,8 @@ function ReferenceValue(name) {
       if (!isnull(context.scope[s]) && !isnull(context.scope[s][name]))
         return makeValue(context.scope[s][name]);
     var result = CONSTANTS[name];
+    if (isnull(result) && name == "position")
+      result = makeValue(context.bitten);
     if (isnull(result))
       throw new DeconError("Undefined constant <" + name + ">", context);
     return result;
@@ -1306,7 +1328,10 @@ function ExpressionValue(left, operator, right) {
       case "=":  result = equal(result, rvalue);  break;
       case ">":  result = (result > rvalue);  break;
       case "<":  result = (result < rvalue);  break;
-      default: throw new DeconError("Internal Error: unknown operator", context);
+      case "<<": result <<= rvalue;  break;
+      case ">>": result >>= rvalue;  break;
+      default: throw new DeconError("Internal Error: unknown operator " + 
+                                    operator, context);
       }
     }
     return result;
