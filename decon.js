@@ -335,7 +335,12 @@ function DeconParser(text) {
     } else if (!isnull(UNARYMODS[is(T.IDENTIFIER)])) {
       var m = UNARYMODS[take(T.IDENTIFIER)];
       return new ModifiedType(m[0], makeValue(m[1]), parseType());
-    }
+    } else if (tryToTake("cast")) {
+      take("(");
+      var to = parseType();
+      take(")");
+      return new ModifiedType("cast", new LiteralValue(null, to), parseType());
+    } 
 
     if (is("union") || is("{")) {
       // Struct/union      
@@ -369,6 +374,11 @@ function DeconParser(text) {
       if (tryToTake(".")) {
         if (MODIFIERS.indexOf(is(T.IDENTIFIER)) >= 0) {
           result = new ModifiedType(take(T.IDENTIFIER), parseValue(), result);
+        } else if (tryToTake("cast")) {
+          take("(");
+          var to = parseType();
+          take(")");
+          result = new ModifiedType("cast", new LiteralValue(null, to), result);
         } else {
           var mname = take(T.IDENTIFIER);
           var m = UNARYMODS[mname];
@@ -950,11 +960,9 @@ function AtomicType(basis) {
         while (siz > 0) {
           if (!context.bits) context.bits = {bits: context.bite(), length: 8};
           var mask = 1 << (context.bits.length-1);
-          v = (v << 1) | ((context.bits.bits & mask) ? 1 : 0);
+          v = (v << 1) | ((context.bits.bits >> (context.bits.length-1)) & 1);
           if (--context.bits.length === 0)
             context.bits = null;
-          //else
-          //  context.bits.bits >>= 1;
           --siz;
         }
         context.result = v;
@@ -1096,6 +1104,12 @@ function ModifiedType(key, value, underlying) {
       // TODO: don't know about this feature. Kind of breaks the model.
       var filename = this.value.value(context);
       return this.underlying.deconstructFile(filename);
+    }
+
+    if (this.key === "cast") {
+      debugger;
+      var c2 = new Context(new Buffer(this.underlying.deconstruct(context)));
+      return this.value.type(context).deconstruct(c2);
     }
 
     if (!isnull(context.modifiers[this.key])) {

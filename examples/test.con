@@ -24,6 +24,16 @@ Main: {
   at 0 Test17 test17
   at 0 Test18 test18
   at 0 Test19 test19
+  at 0 Test20 test20
+  at 0 Test21 test21
+  at 0 Test22 test22
+  at 0 Test23 test23
+  at 0 Test24 test24
+  at 0 Test25 test25
+  at 0 Test26 test26
+  at 0 Test27 test27
+  at 0 Test28 test28
+  at 0 Test29 test29
 }
 
 
@@ -208,3 +218,22 @@ Test19: {
   bit[8][8][2] somebits;
   null.select(position) (0x10) pos;
 }
+
+Test20: {
+  char[10].cast(char[until 'c']) "#ab"
+  char[10].cast(char[until 'm']) "jkl"
+  null.select("hello\000\000\000") hello1
+  null.select("hello\000\000\000").cast(cstring) "hello" hello
+}
+
+
+Test21: {}
+Test22: {}
+Test23: {}
+Test24: {}
+Test25: {}
+Test26: {}
+Test27: {}
+Test28: {}
+Test29: {}
+
