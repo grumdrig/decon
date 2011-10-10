@@ -188,10 +188,19 @@ Test16: {
 
 
 Test17: {
-  OtherFile.deconstruct("ZYXWandetc") another
-  OtherFile.load("examples/test.con") other
+  null.select(filename) filename
+  OtherType.deconstruct("ZYXWandetc") another
+  OtherFile.load(filename) other
 }
-OtherFile: { char[3][3] threeStrings; byte[] }
+OtherType: { 
+  char[3][3] threeStrings; 
+  byte[] 
+}
+OtherFile: { 
+  char[3][3] threeStrings; 
+  null.select(filename) filename;
+  byte[] 
+}
 
 <script>
 function thebits() {

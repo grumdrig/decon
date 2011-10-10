@@ -745,15 +745,16 @@ var parse = exports.parse = function (string, what) {
     throw e;
   }
   return TYPES;
-}
+};
 
 
-function Context(buffer) {
+function Context(buffer, symbols) {
   this.bitten = 0;
   this.result = null;
   this.modifiers = {};
   this.defaults = {};
   this.scope = [GLOBALS];
+  if (symbols) this.scope.push(symbols);
   this.stack = [];
   this.indent = 0;
 
@@ -796,7 +797,7 @@ function Type() {}
 
 Type.prototype.deconstructFile = function (filename, partialok) {
   var inbuf = fs.readFileSync(filename);
-  var context = new Context(inbuf);
+  var context = new Context(inbuf, {filename:filename});
   var result = this.deconstruct(context);
   if (isnull(partialok)) partialok = context.adjusted;
   if (!partialok && !context.eof())
