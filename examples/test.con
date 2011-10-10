@@ -126,6 +126,7 @@ Test9: union {
   {check (1 = 3) null; char oughtnt}
   {czech (2 = 3); char shouldnt}
   "N"
+  char.if(4 = 5)
   {czech ("t" = "t"); char[2] should}
   {"#abc" wontgethere}
 } {"should":"#a"}
@@ -136,7 +137,6 @@ Test10: union {
   {"a" a}
 }
  
-
 Test11: {
   char key1
   char value1
@@ -227,7 +227,14 @@ Test20: {
 }
 
 
-Test21: {}
+Test21: union {
+  char[1].if(false)
+  char[2].if(this = "xy")
+  char[3].if(this = "#ab")
+  char[4]
+} "#ab"
+
+
 Test22: {}
 Test23: {}
 Test24: {}

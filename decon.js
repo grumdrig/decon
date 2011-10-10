@@ -3,6 +3,7 @@
 // TODO: get rid of "base"?
 // TODO: bigint. see https://github.com/substack/node-bigint
 //                or https://github.com/dankogai/js-math-bigint
+// TODO: get rid of "check", use "czech" formula if needed
 
 var fs = require("fs");
 var inspect = require("util").inspect;
@@ -1086,10 +1087,19 @@ function ModifiedType(key, value, underlying) {
     }      
 
     if (this.key === "if") {
-      if (this.value.value(context)) 
-        return this.underlying.deconstruct(context);
-      else
-        return undefined;
+      var wasbit = context.bitten;
+      var result = this.underlying.deconstruct(context);
+      context.scope.unshift(result);
+      context.scope.unshift({this:result});
+      var check = this.value.value(context);
+      context.scope.shift();
+      context.scope.shift();
+      if (check) {
+        return result;
+      } else {
+        context.bitten = wasbit;
+        return;
+      }
     }      
 
     if (this.key === "deconstruct") {
@@ -1100,12 +1110,12 @@ function ModifiedType(key, value, underlying) {
 
     if (this.key === "load") { 
       // TODO: don't know about this feature. Kind of breaks the model.
+      // In particular is the -i parameter always expected?
       var filename = this.value.value(context);
       return this.underlying.deconstructFile(filename);
     }
 
     if (this.key === "cast") {
-      debugger;
       var c2 = new Context(new Buffer(this.underlying.deconstruct(context)));
       return this.value.type(context).deconstruct(c2);
     }
@@ -1183,7 +1193,7 @@ function StructType(union) {
         var unbitten = context.bitten;
         var field = fields[i];
         var value = field.type.deconstruct(context);
-        if (union) {
+        if (union && (typeof value != 'undefined')) {
           result = value;
           break;
         }
