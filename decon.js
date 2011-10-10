@@ -303,10 +303,7 @@ function DeconParser(text) {
         } else {
           // Constant def
           take("=");
-          var type = tryToParseType();
-          var literal = parseValue();
-          if (!isnull(type)) literal.type = type;
-          CONSTANTS[name] = literal;
+          CONSTANTS[name] = parseExpression();
         }
       }
       
@@ -314,7 +311,7 @@ function DeconParser(text) {
     }
   };
 
-  var MODIFIERS = ["size", "at", "select", "check", "equals", "if", "load", 
+  var MODIFIERS = ["size", "at", "select", "check", "if", "load", 
                    "deconstruct"];
   var UNARYMODS = {
     unsigned: ["signed", false],
@@ -344,19 +341,24 @@ function DeconParser(text) {
 
     if (is("union") || is("{")) {
       // Struct/union      
-      var s = new StructType(tryToTake("union"));
+      var union = tryToTake("union");
+      var s = new StructType(union);
       take("{");
       for (maybeTakeNewlines(); !tryToTake("}"); ) {
         var fieldtype = tryToParseType();
-        var fieldvalue = tryToParseValue(true);
-        var fieldname = tryToTake(T.IDENTIFIER);
-        if (isnull(fieldvalue) && isnull(fieldtype))
-          throw new SyntaxError("Missing type in field specification");
-        s.addField(fieldname, fieldvalue, fieldtype);
+        if (isnull(fieldtype)) {
+          var fieldvalue = tryToParseValue(true);
+          if (isnull(fieldvalue)) 
+            throw new SyntaxError("Field type (or value) expected");
+          fieldtype = new CheckedType(fieldvalue, fieldvalue.type());
+        }
+        if (!union)
+          var fieldname = tryToTake(T.IDENTIFIER);
+        s.addField(fieldname, fieldtype);
 
         while (tryToTake(",")) {
           fieldname = take(T.IDENTIFIER);
-          s.addField(fieldname, fieldvalue, fieldtype);
+          s.addField(fieldname, fieldtype);
         }
           
         if (tryToTake("}")) break;  // Allow closing brace w/o newline
@@ -410,6 +412,11 @@ function DeconParser(text) {
         break;
       }
     }
+
+    var check = tryToParseValue(true);
+    if (!isnull(check)) 
+      result = new CheckedType(check, result);
+
     return result;
   }
                              
@@ -519,6 +526,9 @@ function DeconParser(text) {
       }
       result = new ExpressionValue(result, operator, rhs);
     }
+
+    if (tryToTake("as"))
+      result.type = parseType();
 
     return result;
   }
@@ -803,6 +813,7 @@ ArrayType.prototype = new Type();
 AtomicType.prototype = new Type();
 ModifiedType.prototype = new Type();
 StructType.prototype = new Type();
+CheckedType.prototype = new Type();
 
 
 function ReferenceType(name) {
@@ -1081,19 +1092,6 @@ function ModifiedType(key, value, underlying) {
         return undefined;
     }      
 
-    if (this.key === "equals") {
-      var result = this.underlying.deconstruct(context);
-      context.scope.unshift(result);
-      context.scope.unshift({this:result});
-      var check = this.value.value(context);
-      context.scope.shift();
-      context.scope.shift();
-      if (!equal(check, result))
-        throw new DeconError("Failed equality check: " + inspect(result) +
-                             " <> " + this.value.toString(context));
-      return result;
-    }
-
     if (this.key === "deconstruct") {
       // TODO: no one even asked for this feature
       var c2 = new Context(new Buffer(this.value.value(context)));
@@ -1130,29 +1128,22 @@ function ModifiedType(key, value, underlying) {
 
 function StructType(union) {
 
-  function Field(nam, val, typ) {
-    this.name = nam;
-
-    this.value = function (context) {
-      return isnull(val) ? null : val.value(context);
-    }
+  function Field(name, type) {
+    this.name = name;
 
     this.type = function (context) {
-      if (!isnull(typ)) return typ;
-      else return val.type(context);
+      return type;
     }
 
     this.toString = function (context) {
-      return (this.type(context).toString(context) + " " +
-              (isnull(val) ? "" : val.toString(context) + " ") + 
-              (isnull(nam) ? "" : nam));
+      return type.toString(context) + (isnull(name) ? "" : (" " + name));
     }
   }
   
   var fields = [];
 
-  this.addField = function (name, value, type) {
-    fields.push(new Field(name, value, type));
+  this.addField = function (name, type) {
+    fields.push(new Field(name, type));
   }
 
   function pushScope(context) {
@@ -1195,12 +1186,6 @@ function StructType(union) {
         var field = fields[i];
         var type = field.type(context);
         var value = field.type(context).deconstruct(context);
-        if (!isnull(field.value(context)) && !equal(field.value(context),value)){
-          context.bitten = unbitten;
-          throw new DeconError("Non-matching value. Expected: " + 
-                               inspect(field.value(context)) + ", got:" + 
-                               inspect(value), context);
-        }
         if (union) {
           result = value;
           break;
@@ -1217,6 +1202,24 @@ function StructType(union) {
       throw new DeconError("No input matching union", context);
     popScope(context, formerstate);
     return (context.result = result);
+  }
+}
+
+
+function CheckedType(check, underlying) {
+
+  this.toString = function (context) {
+    return underlying.toString(context) + " " + check.toString(context);
+  }
+
+  this.deconstruct = function (context) {
+    var result = underlying.deconstruct(context);
+    if (!equal(check.value(context), result)){
+      throw new DeconError("Non-matching value. Expected: " + 
+                           inspect(check.value(context)) + ", got:" + 
+                           inspect(result), context);
+    }
+    return result;
   }
 }
 
@@ -1307,7 +1310,6 @@ function ArrayValue(values) {
     return result + "]";
   }
 }
-
 
 
 function ExpressionValue(left, operator, right) {
