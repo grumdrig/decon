@@ -1131,9 +1131,7 @@ function StructType(union) {
   function Field(name, type) {
     this.name = name;
 
-    this.type = function (context) {
-      return type;
-    }
+    this.type = type;
 
     this.toString = function (context) {
       return type.toString(context) + (isnull(name) ? "" : (" " + name));
@@ -1184,8 +1182,7 @@ function StructType(union) {
       try {
         var unbitten = context.bitten;
         var field = fields[i];
-        var type = field.type(context);
-        var value = field.type(context).deconstruct(context);
+        var value = field.type.deconstruct(context);
         if (union) {
           result = value;
           break;
