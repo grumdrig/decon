@@ -47,6 +47,8 @@ var fpRegex =
    "(?:0[xX]"+H+"?(?:\\.)"+H+")" +                 // 0xF.F
    ")[pP][+-]?"+D+"))" +                             // ... p+F
    "[fFdD]?))");                                     // suffix
+fpRegex = "-?\\d+\\.\\d+(?:[eE][+-]?\\d+)?|" +
+          "-?\\d+[eE][+-]?\\d+";
 
 var intRegex = "[+-]?[0-9]+";
 //var punctRegex = "[-!#$%&()\\*\\+,\\./:;<=>?@\\[\\\\]^_`{|}~]";
@@ -60,15 +62,16 @@ function TokenMatcher(input) {
                        +"([ \t]*(?:#.*)?)"         // 1. spaces & comments before
                        +"("                        // 2. any token: (
                        +  "([\\r\\n;])"            // 3.   \n
-                       +  '|"((?:[^"\\\\]|\\\\.)*)"'   // 4.   quoted
-                       +  "|'((?:[^'\\\\]|\\\\.)*)'"   // 5.   single-quoted
+                       +  '|"((?:[^"\\\\]|\\\\.)*)"' // 4.   quoted
+                       +  "|'((?:[^'\\\\]|\\\\.)*)'" // 5.   single-quoted
                        +  "|([_a-zA-Z]\\w*)"       // 6.   identifier
-                       +  "|0[xX]([0-9a-fA-F]+)"   // 7.   hex constant
-                       +  "|("+intRegex+")"        // 8.   numerical constant
-                       +  "|([-*/+=:<>&|]+)"       // 9.   operators
-                       +  "|("+punctRegex+")"      // 10.   punctuation
-                       +  "|($)"                   // 11.  EOF
-                       +  "|(.)"                   // 12.  illegal
+                       +  "|("+fpRegex+")"         // 7.   floating point const
+                       +  "|0[xX]([0-9a-fA-F]+)"   // 8.   hex constant
+                       +  "|("+intRegex+")"        // 9.   integer constant
+                       +  "|([-*/+=:<>&|]+)"       // 10.  operators
+                       +  "|("+punctRegex+")"      // 11.  punctuation
+                       +  "|($)"                   // 12.  EOF
+                       +  "|(.)"                   // 13.  illegal
                        +")");                      //    ) 
 
   this.find = function () {
@@ -98,12 +101,13 @@ var T = {
   QUOTED       : 4,
   SINGLEQUOTED : 5,
   IDENTIFIER   : 6,
-  HEXNUMBER    : 7,
-  NUMBER       : 8,
-  OPERATOR     : 9,
-  PUNCTUATION  : 10,
-  EOF          : 11,
-  ILLEGAL      : 12
+  REAL         : 7,
+  HEXNUMBER    : 8,
+  INTEGER      : 9,
+  OPERATOR     : 10,
+  PUNCTUATION  : 11,
+  EOF          : 12,
+  ILLEGAL      : 13
 };
 
 // Reverse-lookup of token types
@@ -170,7 +174,8 @@ function runTests() {
 
   testMatch("lcid", [ T.IDENTIFIER ]);
   testMatch("UcId", [ T.IDENTIFIER ]);
-  testMatch("6", [ T.NUMBER ]);
+  testMatch("6", [ T.INTEGER ]);
+  testMatch("5.4", [ T.REAL ]);
   testMatch(".", [ T.PUNCTUATION ]);
   testMatch("\"la la la\"", [ T.QUOTED ]);
   testMatch("\n", [ T.NEWLINE ]);
@@ -186,15 +191,23 @@ function runTests() {
                             T.PUNCTUATION]);
   
   testParseValue("0", 0);
+  testParseValue("0.5", 0.5);
   testParseValue("6", 6);
   testParseValue("3", 3);
   testParseValue("(2*3)", 2*3);
   testParseValue("(3*2)", 3*2);
   testParseValue("(-2*3/26)", -2*3/26);
   testParseValue("0x20", 32);
-  testParseValue("' '", 32);
   testParseValue("\"\r\n\"", "\r\n");
-  
+  testParseValue("' '", 32);
+  testParseValue("'d'", 100);
+  testParseValue("'c'", 99);
+  testParseValue("'abcd'", (97 << 24) + (98 << 16) + (99 << 8) + 100);
+  testParseValue("'\x45'", 0x45);
+  testParseValue("'\xee'", 0xee);
+  testParseValue("'\x00\x00\xaa\xee'", (0xaa << 8) + 0xee);
+  testParseValue("'\x00\x00\x80\x3f'", (0x80 << 8) + 0x3f);
+
   return true;
 }
 
@@ -431,8 +444,11 @@ function DeconParser(text) {
 
   function tryToParseValue(infield) {
 
-    if (is(T.NUMBER)) {
+    if (is(T.INTEGER)) {
       return makeValue(parseInt(take()));
+
+    } else if (is(T.REAL)) {
+      return makeValue(parseFloat(take()));
 
     } else if (is(T.HEXNUMBER)) {
       var hex = take(T.HEXNUMBER);
@@ -759,9 +775,10 @@ function Context(buffer, symbols) {
   this.indent = 0;
 
   this.bite = function () {
-
     return buffer[this.bitten++];
   }
+
+  this.buffer = buffer;
 
   this.peek = function () {
     return buffer[this.bitten];
@@ -937,10 +954,10 @@ function AtomicType(basis) {
     return defvalue;
   }
 
-  function signed(context)    {  return attr(context, "signed", false);  }
-  function size(context)      {  return attr(context, "size", 8);  }
+  function signed(context)    {  return attr(context, "signed",    false);  }
+  function size(context)      {  return attr(context, "size",      8);  }
   function bigendian(context) {  return attr(context, "bigendian", false);  }
-  function base(context)      {  return attr(context, "base", 10);  }
+  function base(context)      {  return attr(context, "base",      10);  }
 
   this.isAscii = function (context) {
     return base(context) == 256;
@@ -951,6 +968,7 @@ function AtomicType(basis) {
     if (bigendian(context)) result = result.toUpperCase();
     switch (base(context)) {
     case 0:   result += "n";  break;
+    case 0.5: result += "f";  break;
     case 2:   result += "b";  break;
     case 256: result += "c";  break;
     }
@@ -964,6 +982,26 @@ function AtomicType(basis) {
 
   this.deconstruct = function (context) {
     var siz = size(context);
+
+    if (base(context) == 0.5) {
+      // Float
+      if (siz == 32) {
+        console.log(context.buffer.length);
+        console.log(context.buffer.slice(0,4));
+        context.result = readFloat(context.buffer, context.bitten, 
+                                   bigendian(context));
+        context.bitten += 4;
+      } else if (siz == 64) {
+        console.log(context.buffer.slice(0,8));
+        context.result = readDouble(context.buffer, context.bitten, 
+                                    bigendian(context));
+        context.bitten += 8;
+      } else {
+        throw new DeconError("Unsupported floating point size: " + siz, context);
+      }
+      return context.result;
+    }
+
     if (siz > 8 && siz & 0x7) 
       throw new DeconError("Size " + siz + " data not implemented", context);
     context.result = 0;
@@ -1003,6 +1041,49 @@ function AtomicType(basis) {
     return context.result;
   };
 }
+
+
+
+// Borrowed from the future: node 0.5 (we're on 0.4 now)
+// https://github.com/joyent/node/blob/master/lib/buffer_ieee754.js
+function readFloat(buffer, offset, isBigEndian) {
+  return readIEEE754(buffer, offset, isBigEndian, 23, 4);
+}
+function readDouble(buffer, offset, isBigEndian) {
+  return readIEEE754(buffer, offset, isBigEndian, 52, 8);
+}
+function readIEEE754(buffer, offset, isBE, mLen, nBytes) {
+  var e, m,
+  eLen = nBytes * 8 - mLen - 1,
+  eMax = (1 << eLen) - 1,
+  eBias = eMax >> 1,
+  nBits = -7,
+  i = isBE ? 0 : (nBytes - 1),
+  d = isBE ? 1 : -1,
+  s = buffer[offset + i];
+
+  i += d;
+
+  e = s & ((1 << (-nBits)) - 1);
+  s >>= (-nBits);
+  nBits += eLen;
+  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8);
+
+  m = e & ((1 << (-nBits)) - 1);
+  e >>= (-nBits);
+  nBits += mLen;
+  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8);
+
+  if (e === 0) {
+    e = 1 - eBias;
+  } else if (e === eMax) {
+    return m ? NaN : ((s ? -1 : 1) * Infinity);
+  } else {
+    m = m + Math.pow(2, mLen);
+    e = e - eBias;
+  }
+  return (s ? -1 : 1) * m * Math.pow(2, e - mLen);
+};
 
 
 function equal(a, b) {
@@ -1105,7 +1186,7 @@ function ModifiedType(key, value, underlying) {
 
     if (this.key === "deconstruct") {
       // TODO: no one even asked for this feature
-      var c2 = new Context(new Buffer(this.value.value(context)));
+      var c2 = new Context(new Buffer(this.value.value(context), 'binary'));
       return this.underlying.deconstruct(c2);
     }
 
@@ -1418,6 +1499,10 @@ var TYPES = {
   int16: modref("size", 16, "sbyte"),
   int32: modref("size", 32, "sbyte"),
   int64: modref("size", 64, "sbyte"),
+
+  float: new AtomicType({base: 0.5}),
+  float32: modref("size", 32, "float"),
+  float64: modref("size", 64, "float"),
 
   cstring: new ArrayType(new ReferenceType("char"))
 }
