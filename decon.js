@@ -985,20 +985,18 @@ function AtomicType(basis) {
 
     if (base(context) == 0.5) {
       // Float
-      if (siz == 32) {
-        console.log(context.buffer.length);
-        console.log(context.buffer.slice(0,4));
-        context.result = readFloat(context.buffer, context.bitten, 
-                                   bigendian(context));
-        context.bitten += 4;
-      } else if (siz == 64) {
-        console.log(context.buffer.slice(0,8));
-        context.result = readDouble(context.buffer, context.bitten, 
-                                    bigendian(context));
-        context.bitten += 8;
-      } else {
+      var mantissa;
+      switch (siz) {
+      case 16:  mantissa = 10;  break;
+      case 32:  mantissa = 23;  break;
+      case 64:  mantissa = 52;  break;
+      case 128: mantissa = 112; break;
+      default:
         throw new DeconError("Unsupported floating point size: " + siz, context);
       }
+      context.result = readIEEE754(context.buffer, context.bitten, 
+                                   bigendian(context), mantissa, siz / 8);
+      context.bitten += siz / 8;
       return context.result;
     }
 
@@ -1044,14 +1042,8 @@ function AtomicType(basis) {
 
 
 
-// Borrowed from the future: node 0.5 (we're on 0.4 now)
+// Borrowed from
 // https://github.com/joyent/node/blob/master/lib/buffer_ieee754.js
-function readFloat(buffer, offset, isBigEndian) {
-  return readIEEE754(buffer, offset, isBigEndian, 23, 4);
-}
-function readDouble(buffer, offset, isBigEndian) {
-  return readIEEE754(buffer, offset, isBigEndian, 52, 8);
-}
 function readIEEE754(buffer, offset, isBE, mLen, nBytes) {
   var e, m,
   eLen = nBytes * 8 - mLen - 1,
