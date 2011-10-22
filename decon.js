@@ -86,11 +86,10 @@ function TokenMatcher(input) {
 
   this.group = function (n) { return this.match && this.match[n || 0]; }
   
-  this.lookingAt = function () { 
-    return this.find();
-  }
-
   this.pos = 0;
+
+  this.mark = function () { return [this.pos, this.match]; }
+  this.reset = function (mark) { this.pos = mark[0]; this.match = mark[1]; }
 }
 
 // Token types
@@ -148,6 +147,7 @@ function testParseValue(input, expected) {
     process.exit(-8);
   }
   */
+
   var context = { modifiers: {}, defaults: {}, scope: [] };
   if (!equal(d.value(context), expected)) {
     console.error("Unexpected value " + d.toString(context) + " expected " + 
@@ -215,7 +215,7 @@ function runTests() {
 function DeconParser(text) {
 
   var tokenMatcher = new TokenMatcher(text);
-  if (!tokenMatcher.lookingAt()) 
+  if (!tokenMatcher.find()) 
     throw new SyntaxError("Syntax error at start of file");
 
   function advance() {
@@ -359,6 +359,19 @@ function DeconParser(text) {
       var s = new StructType(union);
       take("{");
       for (maybeTakeNewlines(); !tryToTake("}"); ) {
+        // TODO: tokenizing should be refactored
+        var fieldnames = [null];
+        if (!union && is(T.IDENTIFIER)) {
+          var mark = tokenMatcher.mark();
+          var fieldnames = [take(T.IDENTIFIER)];
+          while (tryToTake(",") && is(T.IDENTIFIER))
+            fieldnames.push(take(T.IDENTIFIER));
+          if (!tryToTake(":")) {
+            tokenMatcher.reset(mark);
+            fieldnames = [null];
+          }
+        }
+
         var fieldtype = tryToParseType();
         if (isnull(fieldtype)) {
           var fieldvalue = tryToParseValue(true);
@@ -366,14 +379,11 @@ function DeconParser(text) {
             throw new SyntaxError("Field type (or value) expected");
           fieldtype = new CheckedType(fieldvalue, fieldvalue.type());
         }
-        if (!union)
-          var fieldname = tryToTake(T.IDENTIFIER);
-        s.addField(fieldname, fieldtype);
 
-        while (tryToTake(",")) {
-          fieldname = take(T.IDENTIFIER);
-          s.addField(fieldname, fieldtype);
-        }
+        fieldnames.each(function (i,fieldname) {
+            s.addField(fieldname, fieldtype);
+          });
+
           
         if (tryToTake("}")) break;  // Allow closing brace w/o newline
         takeNewlines();
@@ -553,9 +563,15 @@ function DeconParser(text) {
 }
 
 
-String.prototype.endsWith = function(suffix) {
+String.prototype.endsWith = function (suffix) {
   return this.indexOf(suffix, this.length - suffix.length) !== -1;
 };
+
+
+Array.prototype.each = function (callback) {
+  for (var i = 0; i < this.length; ++i) 
+    callback(i, this[i]);
+}
 
 
 function main() {

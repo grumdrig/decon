@@ -7,8 +7,8 @@ TaggedData: union {
   TAG_Short
   TAG_Int
   TAG_Long
-  #TAG_Float
-  #TAG_Double
+  TAG_Float
+  TAG_Double
   TAG_Byte_Array
   TAG_String
   TAG_List
@@ -22,8 +22,8 @@ TAG_Byte:       { byte 1; String name; Byte value }.select({name:value})
 TAG_Short:      { byte 2; String name; Short value }.select({name:value})
 TAG_Int:        { byte 3; String name; Int value }.select({name:value})
 TAG_Long:       { byte 4; String name; Long value }.select({name:value})
-#TAG_Float:      { byte 5; String name; Float value }.select({name:value})
-#TAG_Double:     { byte 6; String name; Double value }.select({name:value})
+TAG_Float:      { byte 5; String name; Float value }.select({name:value})
+TAG_Double:     { byte 6; String name; Double value }.select({name:value})
 TAG_Byte_Array: { byte 7; String name; Byte_Array value }.select({name:value})
 TAG_String:     { byte 8; String name; String value }.select({name:value})
 TAG_List:       { byte 9; String name; List value }.select({name:value})
@@ -34,22 +34,23 @@ Byte: int8
 Short: int16
 Int: int32
 Long: int64
-#Float: float32
-#Double: float64
+Float: float32
+Double: float64
 Byte_Array: { int32 length; int8[length] value }.select(value)
 String: { int16 length; char[length] value }.select(value)
 if: bool.size(0).select(true)
-List: { byte tagId; int32 length
-         union { if (tagId = 1) Byte
-                 if (tagId = 2) Short
-                 if (tagId = 3) Int
-                 if (tagId = 4) Long
-                 #if (tagId = 5) Float
-                 #if (tagId = 6) Double
-                 if (tagId = 7) Byte_Array
-                 if (tagId = 8) String
-                 if (tagId = 9) List
-                 if (tagId = 10) Compound 
-               }[length] value 
+List: { tagId: byte
+        length: int32
+        value: union { if (tagId = 1) Byte
+                       if (tagId = 2) Short
+                       if (tagId = 3) Int
+                       if (tagId = 4) Long
+                       if (tagId = 5) Float
+                       if (tagId = 6) Double
+                       if (tagId = 7) Byte_Array
+                       if (tagId = 8) String
+                       if (tagId = 9) List
+                       if (tagId = 10) Compound 
+                     }[length]
       }
 Compound: TaggedData[until null]

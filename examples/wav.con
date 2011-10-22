@@ -3,20 +3,20 @@
 ID: byte[4]
 
 WavFile: littleendian {
-  "RIFF"      # RIFF file signature
-  uint32      chunkSize
-  "WAVE"      # WAVE format tag
-  WaveFormat  format
-  DataChunk   data
-  MiscChunk[] other
+  : "RIFF"  # RIFF file signature
+  chunkSize: uint32      
+  : "WAVE"  # WAVE format tag
+  format: WaveFormat
+  data: DataChunk
+  other: MiscChunk[]
 }
 
 WAVE_FORMAT_PCM = 1
 
 WaveFormat: {
-  "fmt "                # WAVE format tag
-  uint32 fLen           # length of data in the format chunk
-  uint16 (WAVE_FORMAT_PCM) encoding
+  :"fmt "                # WAVE format tag
+  fLen: uint32           # length of data in the format chunk
+  encoding: uint16 WAVE_FORMAT_PCM 
   uint16 nChannels      # (mono=1, stereo=2)
   uint32 nSamplesPerSec # Playback frequency
   uint32 nAvgBytesPerSec

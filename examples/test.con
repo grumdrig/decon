@@ -5,64 +5,66 @@
 #>ĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂ<
 
 Main: {
-  at 0 Test1 test1
-  at 0 Test2 test2
-  at 0 Test3 test3
-  at 0 Test4 test4
-  at 0 Test5 test5
-  at 0 Test6 test6
-  at 0 Test7 test7
-  at 0 Test8 test8
-  at 0 Test9 test9
-  at 0 Test10 test10
-  at 0 Test11 test11
-  at 0 Test12 test12
-  at 0 Test13 test13
-  at 0 Test14 test14
-  at 0 Test15 test15
-  at 0 Test16 test16
-  at 0 Test17 test17
-  at 0 Test18 test18
-  at 0 Test19 test19
-  at 0 Test20 test20
-  at 0 Test21 test21
-  at 0 Test22 test22
-  at 0 Test23 test23
-  at 0 Test24 test24
-  at 0 Test25 test25
-  at 0 Test26 test26
-  at 0 Test27 test27
-  at 0 Test28 test28
-  at 0 Test29 test29
+  test1: at 0 Test1
+  test2: at 0 Test2
+  test3: at 0 Test3
+  test4: at 0 Test4
+  test5: at 0 Test5
+  test6: at 0 Test6
+  test7: at 0 Test7
+  test8: at 0 Test8
+  test9: at 0 Test9
+  test10: at 0 Test10
+  test11: at 0 Test11
+  test12: at 0 Test12
+  test13: at 0 Test13
+  test14: at 0 Test14
+  test15: at 0 Test15
+  test16: at 0 Test16
+  test17: at 0 Test17
+  test18: at 0 Test18
+  test19: at 0 Test19
+  test20: at 0 Test20
+  test21: at 0 Test21
+  test22: at 0 Test22
+  test23: at 0 Test23
+  test24: at 0 Test24
+  test25: at 0 Test25
+  test26: at 0 Test26
+  test27: at 0 Test27
+  test28: at 0 Test28
+  test29: at 0 Test29
 }
 
 
 Test1: {
-  char[5] "#abcd" f1
+  f1: char[5] "#abcd"
+  e,f,g,h: char
+  i: char "i"
   char[5]
-  char[10] f2
-  {
-    bool bool
-    null null
-  }[2] nada
+  f2: char[10]
+  nada: {
+    bool: bool
+    null: null
+  }[2]
 }
 
 
 Test2: {
-  at(1) littleendian int8 'a' a
-  at(1) bigendian    int8 'a' a_
-  at(1) littleendian int16 'ba' ba
-  at(1) bigendian    int16 'ab' ab
-  at(1) littleendian int32 'dcba' dcba
-  at(1) bigendian    int32 'abcd' abcd
+  a:  at(1) littleendian int8 'a'
+  a_: at(1) bigendian    int8 'a'
+  ba: at(1) littleendian int16 'ba'
+  ab: at(1) bigendian    int16 'ab'
+  dcba: at(1) littleendian int32 'dcba'
+  abcd: at(1) bigendian    int32 'abcd'
 }
 
 
 Test3: {
   char[before 'L']
   "LMNOP"
-  char Q
-  TString "RST" totee
+  Q: char
+  totee: TString "RST"
 }.check(Q = "Q")
 terminator = 'T' as char
 TString: char[through terminator]
@@ -70,30 +72,30 @@ TString: char[through terminator]
 
 Test4: {
   byte[before '1']
-  Little little
-  Big big
+  little: Little
+  big: Big
 }
 Word: signed size 16 byte
-Big: bigendian { Word word }
-Little: littleendian { Word word }
+Big: bigendian { word: Word }
+Little: littleendian { word: Word }
 
  
 Test5: {
   char[through "["]
-  char[before ']']  one
-  char[2] apple
-  byte[through 'o'] two
-  char closebracket
+  one: char[before ']']
+  apple: char[2]
+  two: byte[through 'o']
+  closebracket: char
   "[three]"
-  "OK" ok
+  ok: "OK"
 }
 
 
 Test6: {
-  at(0) String5 reprise
-  byte thing1
-  byte (thing1 + 1) thing2
-  {byte (thing1 + 2 + N) b}[2 index N] things
+  reprise: at(0) String5
+  thing1: byte
+  thing2: byte (thing1 + 1)
+  things: {b: byte (thing1 + 2 + N)}[2 index N]
 }
 String5: char[5]
 
@@ -110,40 +112,40 @@ Test7: {
   char[until '#']
   int32 'ABCD'
   int64 'EFGHIJKL'
-  char mmmmhmmm
+  mmmmhmmm: char
 }
 
 
 Test8: {
-  char pound
-  char a
-  char b
+  pound: char
+  a: char
+  b: char
 }.select(a) "a"
 
 
 czech: null.select(true)  # TODO: make official?
 Test9: union {
-  {check (1 = 3) null; char oughtnt}
-  {czech (2 = 3); char shouldnt}
+  {check (1 = 3) null; oughtnt: char }
+  {czech (2 = 3); shouldnt: char }
   "N"
   char.if(4 = 5)
-  {czech ("t" = "t"); char[2] should}
-  {"#abc" wontgethere}
+  {czech ("t" = "t"); should: char[2] }
+  {wontgethere: "#abc"}
 } {"should":"#a"}
 
 # Recursive def'n
 Test10: union {
-  {"#"; Test10 pound}
-  {"a" a}
+  {"#"; pound: Test10 }
+  {a: "a"}
 }
  
 Test11: {
-  char key1
-  char value1
-  char key2
-  char value2
-  null.select {key1:value1} map1
-  null.select {key1:value1, key2:value2} map2
+  key1: char
+  value1: char
+  key2: char
+  value2: char
+  map1: null.select {key1:value1}
+  map2: null.select {key1:value1, key2:value2}
 }.select(map2) {"b":"c","#":"a"}
 
 
@@ -155,20 +157,20 @@ Test13: byte[3] (['#', 'a', 'b'])
 
 Test14: { 
   char[through 'z']
-  char "\n" newline
+  newline: char "\n"
 }
 
 
 Test15: {
   char[through '>']
-  char ahornc
-  byte ahornb
-  int16 i16
-  uint16 u16
-  int32 i32
-  uint32 u32
-  int64 i64
-  uint64 u64
+  ahornc: char
+  ahornb: byte
+  i16: int16
+  u16: uint16
+  i32: int32
+  u32: uint32
+  i64: int64
+  u64: uint64
 }
 
 <script>
@@ -182,23 +184,23 @@ function triplethis() {
 
 Test16: {
   char
-  char[3].select(double(this)) "abcabc" abcabc
-  char[2].select(triplethis()) "dedede" de3
+  abcabc: char[3].select(double(this)) "abcabc"
+  de3: char[2].select(triplethis()) "dedede"
 }
 
 
 Test17: {
-  null.select(filename) filename
-  OtherType.deconstruct("ZYXWandetc") another
-  OtherFile.load(filename) other
+  filename: null.select(filename)
+  another: OtherType.deconstruct("ZYXWandetc")
+  other: OtherFile.load(filename)
 }
 OtherType: { 
-  char[3][3] threeStrings; 
-  byte[] 
+  threeStrings: char[3][3]
+  byte[]
 }
 OtherFile: { 
-  char[3][3] threeStrings; 
-  null.select(filename) filename;
+  threeStrings: char[3][3]
+  filename: null.select(filename)
   byte[] 
 }
 
@@ -215,24 +217,24 @@ function thenibbles() {
 </script>
 
 Test18: {
-  byte.at(0).select(thebits()) bpound;
-  bit[8].at(0) (bpound) pound;
-  byte.at(1).select(thenibbles()) na;
-  nibble[2].at(1) (na) a;
+  bpound: byte.at(0).select(thebits())
+  pound: bit[8].at(0) (bpound)
+  na: byte.at(1).select(thenibbles())
+  a: nibble[2].at(1) (na)
 }
-bit: size 1 byte;
-nibble: size 4 byte;
+bit: size 1 byte
+nibble: size 4 byte
 
 Test19: {
-  bit[8][8][2] somebits;
-  null.select(position) (0x10) pos;
+  somebits: bit[8][8][2]
+  pos: null.select(position) (0x10)
 }
 
 Test20: {
   char[10].cast(char[until 'c']) "#ab"
   char[10].cast(char[until 'm']) "jkl"
-  null.select("hello\000\000\000") hello1
-  null.select("hello\000\000\000").cast(cstring) "hello" hello
+  hello1: null.select("hello\000\000\000")
+  hello: null.select("hello\000\000\000").cast(cstring) "hello"
 }
 
 
@@ -245,11 +247,11 @@ Test21: union {
 
 
 Test22: {
-  float32.littleendian.deconstruct([0,0,0x80,0x3f]) 1 le32
-  float32.littleendian.deconstruct("\x00\x00\x80\x3f") 1 le32a
-  float32.bigendian.deconstruct([0x3f,0x80,0,0]) 1 be32
-  float64.littleendian.deconstruct("\x55\x55\x55\x55\x55\x55\xd5\x3f") 0.33333333333333333 le64
-  float64.bigendian.deconstruct([0x3f,0xd5,0x55,0x55,0x55,0x55,0x55,0x55]) 0.333333333333333333333 be64
+  le32: float32.littleendian.deconstruct([0,0,0x80,0x3f]) 1 
+  le32a: float32.littleendian.deconstruct("\x00\x00\x80\x3f") 1
+  be32: float32.bigendian.deconstruct([0x3f,0x80,0,0]) 1
+  le64: float64.littleendian.deconstruct("\x55\x55\x55\x55\x55\x55\xd5\x3f") 0.33333333333333333
+  be64: float64.bigendian.deconstruct([0x3f,0xd5,0x55,0x55,0x55,0x55,0x55,0x55]) 0.333333333333333333333
 }
 
 
