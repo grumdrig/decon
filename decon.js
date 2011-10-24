@@ -29,6 +29,22 @@ function DeconError(problem, context) {
   err.message = '';
   Error.captureStackTrace(err, arguments.callee);
   this.stack = err.stack;
+
+  this.complain = function () {
+    if (isnull(this.context)) {
+      console.error("NO CONTEXT!");
+      this.context = { bitten: -1, xxd: function () {} };
+    }
+    
+    // TODO print some more context
+    console.error("DECON ERROR (@" + this.context.bitten + "): " +
+                  this.problem);
+    console.error(this.context.xxd());
+    console.error(this.context.stack);
+    console.error(this.context.scope);
+    console.error(this.stack);
+    process.exit(-2);
+  };
 }
 
 
@@ -113,6 +129,20 @@ var T = {
 for (var i in T)
   if (T.hasOwnProperty(i)) 
     T[T[i]] = i;
+
+
+var MODIFIERS = ["size", "at", "select", "check", "if", "load", 
+                 "reconstruct"];
+var UNARYMODS = {
+  unsigned: ["signed", false],
+  signed: ["signed", true],
+  bigendian: ["bigendian", true],
+  littleendian: ["bigendian", false]
+};
+
+function each(obj, callback) {
+  for (var p in obj) if (obj.hasOwnProperty(p)) callback(p, obj[p]);
+}
 
 
 function isnull(x) {
@@ -323,15 +353,6 @@ function DeconParser(text) {
       
       if (!is(T.EOF)) takeNewlines();
     }
-  };
-
-  var MODIFIERS = ["size", "at", "select", "check", "if", "load", 
-                   "deconstruct"];
-  var UNARYMODS = {
-    unsigned: ["signed", false],
-    signed: ["signed", true],
-    bigendian: ["bigendian", true],
-    littleendian: ["bigendian", false]
   };
 
   var parseType = this.parseType = function() {
@@ -641,19 +662,7 @@ function main() {
     var tree = Main.deconstructFile(infile, partialok);
   } catch (de) {
     if (de instanceof DeconError) {
-      if (isnull(de.context)) {
-        console.error("NO CONTEXT!");
-        de.context = { bitten: -1, xxd: function () {} };
-      }
-          
-      // TODO print some more context
-      console.error("DECON ERROR (@" + de.context.bitten + "): " +
-                    de.problem);
-      console.error(de.context.xxd());
-      console.error(de.context.stack);
-      console.error(de.context.scope);
-      console.error(de.stack);
-      process.exit(-2);
+      de.complain();
     } else {
       throw de;
     }
@@ -826,21 +835,54 @@ function Context(buffer, symbols) {
 
 
 
-function Type() {}
+function Type() {
 
-Type.prototype.deconstructFile = function (filename, partialok) {
-  var inbuf = fs.readFileSync(filename);
-  var context = new Context(inbuf, {filename:filename});
-  var result = this.deconstruct(context);
-  if (isnull(partialok)) partialok = context.adjusted;
-  if (!partialok && !context.eof())
-    throw new DeconError("Unconsumed data [" + (context.length() - context.bitten) + "] at end of file " + filename, context);
-  return result;
-};
+  this.deconstructFile = function (filename, partialok) {
+    var inbuf = fs.readFileSync(filename);
+    var context = new Context(inbuf, {filename:filename});
+    var result = this.deconstruct(context);
+    if (isnull(partialok)) partialok = context.adjusted;
+    if (!partialok && !context.eof())
+      throw new DeconError("Unconsumed data [" + (context.length() - context.bitten) + "] at end of file " + filename, context);
+    return result;
+  };
+  
+  this.deconstructString = function (string, partialok) {
+    var inbuf = new Buffer(string);
+    var context = new Context(inbuf, {});
+    var result = this.deconstruct(context);
+    if (isnull(partialok)) partialok = context.adjusted;
+    if (!partialok && !context.eof())
+      throw new DeconError("Unconsumed data [" + (context.length() - context.bitten) + "] at end of file", context);
+    return result;
+  };
+  
+  this.isAscii = function (context) { return false; };
 
-Type.prototype.isAscii = function (context) { return false; };
+  this.dereference = function (context) { return this; };
 
-Type.prototype.dereference = function (context) { return this; };
+  // Construction
+
+  this.array = function (limit) {
+    if (typeof limit == typeof 1)  limit = {length: limit};
+    for (var i in limit) 
+      if (limit.hasOwnProperty(i))
+        limit[i] = makeValue(limit[i]);
+    return new ArrayType(this, limit);
+  };
+
+  this.equals = function (value) {
+    return new CheckedType(makeValue(value), this);
+  };
+
+  var that = this;
+  MODIFIERS.each(function (i,m) {
+      that[m] = function (v) { return new ModifiedType(m,makeValue(v),this); };
+    });
+  each(UNARYMODS, function (m,v) {
+      that[m] = function () { return new ModifiedType(v[0], makeValue(v[1]), this); };
+    });
+}
 
 
 ReferenceType.prototype = new Type();
@@ -893,21 +935,17 @@ function ReferenceType(name) {
 
 function ArrayType(element, optLen) {
 
-  if (!isnull(optLen)) this.length = optLen;
+  if (!isnull(optLen)) {
+    if (typeof optLen == typeof 1) {
+      this.length = optLen;
+    } else {
+      var that = this;
+      each(optLen, function (k,v) { that[k] = v; });
+    }
+  }
 
   this.toString = function (context) {
-    var terms = [];
-    if (!isnull(this.length)) 
-      terms.push(this.length.toString(context));
-    if (!isnull(this.index)) 
-      terms.push("index " + this.index);
-    if (!isnull(this.until)) 
-      terms.push("until " + this.until.toString(context));
-    if (!isnull(this.through)) 
-      terms.push("through "+ this.through.toString(context));
-    if (!isnull(this.before)) 
-      terms.push("before " + this.before.toString(context));
-    return ("" + element.toString(context) + "[" + terms.join(" ") + "]");
+    return ("" + element.toString(context) + "[" + this.length + "]");
   };
 
   function equals(terminator, value, context) {
@@ -1192,7 +1230,7 @@ function ModifiedType(key, value, underlying) {
       }
     }      
 
-    if (this.key === "deconstruct") {
+    if (this.key === "reconstruct") {
       // TODO: no one even asked for this feature
       var c2 = new Context(new Buffer(this.value.value(context), 'binary'));
       return this.underlying.deconstruct(c2);
@@ -1480,6 +1518,8 @@ function makeValue(value) {
       return new LiteralValue(value, new ReferenceType("int32"));
     else 
       return new LiteralValue(value, new ReferenceType("int64"));
+  } else if (typeof value == typeof '') {
+    return new LiteralValue(value, new ReferenceType("char").array(value.length));
   } else  {
     //throw new Error("Internal Error: Invalid parameter to makeValue: " + typeof value);
     return new LiteralValue(value, new ReferenceType("object"));
@@ -1524,6 +1564,27 @@ var CONSTANTS = {
 
 var GLOBALS = {
 };
+
+
+exports.struct = function (fields) {
+  var result = new StructType(false);
+  for (var name in fields) if (fields.hasOwnProperty(name)) {
+      result.addField(name, fields[name]);
+    }
+  return result;
+};
+
+exports.literal = function (value) {
+  value = makeValue(value);
+  return new CheckedType(value, value.type());
+};
+
+exports.string = function (limit) {
+  return new ArrayType(new ReferenceType("char"), limit);
+};
+
+for (var t in TYPES) if (TYPES.hasOwnProperty(t)) exports[t] = TYPES[t];
+
 
 if (require.main === module) {
   main();
