@@ -8,17 +8,6 @@
 var fs = require("fs");
 var inspect = require("util").inspect;
 
-// Syntax error during .con file parsing
-function SyntaxError(problem) {
-  this.problem = problem;
-
-  var err = new Error;
-  err.name = 'Trace';
-  err.message = '';
-  Error.captureStackTrace(err, arguments.callee);
-  this.stack = err.stack;
-}
-
 // Syntax error during deconstruction phase
 function DeconError(problem, context) {
   this.problem = problem;
@@ -47,92 +36,8 @@ function DeconError(problem, context) {
   };
 }
 
-
-// From http://java.sun.com/javase/6/docs/api/java/lang/Double.html
-var D = "(?:\\p{Digit}+)";
-var H = "(?:\\p{XDigit}+)";
-var E = "[eE][+-]?" + D;
-var fpRegex =
-  ("[+-]?(?:" +                                      // sign
-   "NaN|" +                                          // NaN
-   "Infinity|" +                                     // Infinity
-   "(?:(?:(?:"+D+"(?:\\.)?(?:"+D+"?)(?:"+E+")?)|"+   // 9.9e+9 etc
-   "(?:\\.(?:"+D+")(?:"+E+")?)|"+                    // .9e+9 etc
-   "(?:(?:" +                                
-   "(?:0[xX]"+H+"(?:\\.)?)|" +                     // 0xF.
-   "(?:0[xX]"+H+"?(?:\\.)"+H+")" +                 // 0xF.F
-   ")[pP][+-]?"+D+"))" +                             // ... p+F
-   "[fFdD]?))");                                     // suffix
-fpRegex = "-?\\d+\\.\\d+(?:[eE][+-]?\\d+)?|" +
-          "-?\\d+[eE][+-]?\\d+";
-
-var intRegex = "[+-]?[0-9]+";
-//var punctRegex = "[-!#$%&()\\*\\+,\\./:;<=>?@\\[\\\\]^_`{|}~]";
-var punctRegex = "[\\.{}\\[\\]()]";
-                
-
-function TokenMatcher(input) {
-  this.input = input;
-  
-  this.re = new RegExp("^"                         //    beginning at last match:
-                       +"([ \t]*(?:#.*)?)"         // 1. spaces & comments before
-                       +"("                        // 2. any token: (
-                       +  "([\\r\\n;])"            // 3.   \n
-                       +  '|"((?:[^"\\\\]|\\\\.)*)"' // 4.   quoted
-                       +  "|'((?:[^'\\\\]|\\\\.)*)'" // 5.   single-quoted
-                       +  "|([_a-zA-Z]\\w*)"       // 6.   identifier
-                       +  "|("+fpRegex+")"         // 7.   floating point const
-                       +  "|0[xX]([0-9a-fA-F]+)"   // 8.   hex constant
-                       +  "|("+intRegex+")"        // 9.   integer constant
-                       +  "|([-*/+=:<>&|]+)"       // 10.  operators
-                       +  "|("+punctRegex+")"      // 11.  punctuation
-                       +  "|($)"                   // 12.  EOF
-                       +  "|(.)"                   // 13.  illegal
-                       +")");                      //    ) 
-
-  this.find = function () {
-    this.match = this.re.exec(this.input.substr(this.pos));
-    if (this.match) {
-      this.pos += this.match[0].length;
-    }
-    return this.match;
-  }
-  
-  this.groupCount = function () { return this.match.length; }
-
-  this.group = function (n) { return this.match && this.match[n || 0]; }
-  
-  this.pos = 0;
-
-  this.mark = function () { return [this.pos, this.match]; }
-  this.reset = function (mark) { this.pos = mark[0]; this.match = mark[1]; }
-}
-
-// Token types
-var T = {
-  WHITESPACE   : 1,
-  TOKEN        : 2,
-  NEWLINE      : 3,
-  QUOTED       : 4,
-  SINGLEQUOTED : 5,
-  IDENTIFIER   : 6,
-  REAL         : 7,
-  HEXNUMBER    : 8,
-  INTEGER      : 9,
-  OPERATOR     : 10,
-  PUNCTUATION  : 11,
-  EOF          : 12,
-  ILLEGAL      : 13
-};
-
-// Reverse-lookup of token types
-for (var i in T)
-  if (T.hasOwnProperty(i)) 
-    T[T[i]] = i;
-
-
 var MODIFIERS = ["size", "at", "select", "check", "if", "load", 
-                 "reconstruct"];
+                 "reconstruct", "cast"];
 var UNARYMODS = {
   unsigned: ["signed", false],
   signed: ["signed", true],
@@ -141,7 +46,7 @@ var UNARYMODS = {
 };
 
 function each(obj, callback) {
-  for (var p in obj) if (obj.hasOwnProperty(p)) callback(p, obj[p]);
+  for (var p in obj) if (obj.hasOwnProperty(p)) callback(obj[p], p);
 }
 
 
@@ -178,8 +83,8 @@ function testParseValue(input, expected) {
   }
   */
 
-  var context = { modifiers: {}, defaults: {}, scope: [] };
-  if (!equal(d.value(context), expected)) {
+  var context = new Context();
+  if (!equal(context.evaluate(d), expected)) {
     console.error("Unexpected value " + d.toString(context) + " expected " + 
                   inspect(expected) + " for " + inspect(input));
     process.exit(-9);
@@ -401,7 +306,7 @@ function DeconParser(text) {
           fieldtype = new CheckedType(fieldvalue, fieldvalue.type());
         }
 
-        fieldnames.each(function (i,fieldname) {
+        fieldnames.each(function (fieldname, i) {
             s.addField(fieldname, fieldtype);
           });
 
@@ -466,120 +371,6 @@ function DeconParser(text) {
   }
                              
 
-  var parseValue = this.parseValue = function (infield) {
-    var r = tryToParseValue(infield);
-    if (isnull(r))
-      throw new SyntaxError("Value expected");
-    return r;
-  }
-
-  function tryToParseValue(infield) {
-
-    if (is(T.INTEGER)) {
-      return makeValue(parseInt(take()));
-
-    } else if (is(T.REAL)) {
-      return makeValue(parseFloat(take()));
-
-    } else if (is(T.HEXNUMBER)) {
-      var hex = take(T.HEXNUMBER);
-      return new LiteralValue(parseInt(hex, 16),
-                              new ModifiedType("size",
-                                               makeValue(4 * hex.length), 
-                                               new ReferenceType("byte")));
-
-    } else if (is(T.SINGLEQUOTED)) {
-      // TODO: deal with endianness and type-specifying and all that
-      var s = evalString(take(T.SINGLEQUOTED));
-      var value = 0;
-      for (var i = 0; i < s.length; ++i)
-        value = (value << 8) + (0xFF & s.charCodeAt(i));
-      return new LiteralValue(value, new ModifiedType("size", 
-                                                      makeValue(8 * s.length),
-                                                     new ReferenceType("byte")));
-
-    } else if (is(T.QUOTED)) {
-      var value = evalString(take(T.QUOTED));
-      return new LiteralValue(value, new ArrayType(new ReferenceType("char"), 
-                                                   makeValue(value.length)));
-
-    } else if (tryToTake("{")) {
-      // Object literal
-      var keys = [], values = [];
-      maybeTakeNewlines();
-      if (!tryToTake("}")) for (;; take(",")) {
-        maybeTakeNewlines();
-        keys.push(parseExpression());
-        take(":");
-        values.push(parseExpression());
-        maybeTakeNewlines();
-        if (tryToTake("}")) break;
-      }
-      return new MapValue(keys, values);
-
-    } else if (tryToTake("[")) {
-      var values = [];
-      if (!tryToTake("]")) for (;; take(",")) {
-        values.push(parseExpression());
-        if (tryToTake("]")) break;
-      }
-      return new ArrayValue(values);
-
-    } else if (!infield && is(T.IDENTIFIER)) {
-      return new ReferenceValue(take(T.IDENTIFIER));
-
-    } else if (tryToTake("(")) {
-      var result = parseExpression();
-      take(")");
-      return result;
-
-    } else {
-      return null;
-    }
-  }
-
-
-  var operators = "/*+-.[=<>&|(".split("").concat([">>", "<<"]);
-
-  function parseExpression() {
-    var r = tryToParseExpression();
-    if (isnull(r))
-      throw new SyntaxError("Numeric value expected");
-    return r;
-  }
-
-  function tryToParseExpression() {
-    var result;
-
-    result = tryToParseValue();
-
-    // TODO associativity rules
-    if (!isnull(result)) while(operators.indexOf(is(T.TOKEN)) >= 0) {
-      var operator = take();
-      if (operator === "[") {
-        var rhs = parseExpression();
-        take("]");
-      } else if (operator === "(") {
-        var rhs = [];
-        if (!tryToTake(")")) {
-          for (;;) {
-            rhs.push(parseExpression());
-            if (!tryToTake(","))
-              break;
-          }
-          take(")");
-        }
-      } else {
-        var rhs = parseValue();
-      }
-      result = new ExpressionValue(result, operator, rhs);
-    }
-
-    if (tryToTake("as"))
-      result.type = parseType();
-
-    return result;
-  }
 
 }
 
@@ -587,11 +378,14 @@ function DeconParser(text) {
 String.prototype.endsWith = function (suffix) {
   return this.indexOf(suffix, this.length - suffix.length) !== -1;
 };
+String.prototype.startsWith = function (prefix) {
+  return this.substr(0, prefix.length) === prefix;
+};
 
 
 Array.prototype.each = function (callback) {
   for (var i = 0; i < this.length; ++i) 
-    callback(i, this[i]);
+    callback(this[i], i);
 }
 
 
@@ -817,6 +611,12 @@ function Context(buffer, symbols) {
     return buffer.length;
   }
 
+  this.evaluate = function (v, that) {
+    while (typeof v == 'function')
+      v = v.call(that);
+    return v;
+  }
+
   this.xxd = function () {
     var result = "000000" + this.bitten.toString(16) + ": ";
     result = result.substr(result.length - 9);
@@ -865,22 +665,19 @@ function Type() {
 
   this.array = function (limit) {
     if (typeof limit == typeof 1)  limit = {length: limit};
-    for (var i in limit) 
-      if (limit.hasOwnProperty(i))
-        limit[i] = makeValue(limit[i]);
     return new ArrayType(this, limit);
   };
 
   this.equals = function (value) {
-    return new CheckedType(makeValue(value), this);
+    return new CheckedType(value, this);
   };
 
   var that = this;
-  MODIFIERS.each(function (i,m) {
-      that[m] = function (v) { return new ModifiedType(m,makeValue(v),this); };
+  MODIFIERS.each(function (m,i) {
+      that[m] = function (v) { return new ModifiedType(m, v, this); };
     });
-  each(UNARYMODS, function (m,v) {
-      that[m] = function () { return new ModifiedType(v[0], makeValue(v[1]), this); };
+  each(UNARYMODS, function (v,m) {
+      that[m] = function () { return new ModifiedType(v[0], v[1], this); };
     });
 }
 
@@ -940,7 +737,7 @@ function ArrayType(element, optLen) {
       this.length = optLen;
     } else {
       var that = this;
-      each(optLen, function (k,v) { that[k] = v; });
+      each(optLen, function (v,k) { that[k] = v; });
     }
   }
 
@@ -950,7 +747,7 @@ function ArrayType(element, optLen) {
 
   function equals(terminator, value, context) {
     if (isnull(terminator)) return false;
-    var term = terminator.value(context);
+    var term = context.evaluate(terminator);
     if (typeof term != typeof value) {
       if (typeof term == typeof 1)  term = String.fromCharCode(term);
       if (typeof value == typeof 1) value = String.fromCharCode(value);
@@ -968,7 +765,7 @@ function ArrayType(element, optLen) {
       if (this.index)
         context.scope[0][this.index] = i;
       if (!isnull(this.length)) {
-        var count = this.length.value(context)
+        var count = context.evaluate(this.length);
         if (typeof count != typeof 1)
           throw new DeconError("Invalid array length: " + 
                                inspect(count), context);
@@ -1000,10 +797,14 @@ function AtomicType(basis) {
   function attr(context, key, defvalue) {
     if (!isnull(basis[key])) return basis[key];
     if (!isnull(context)) {
-      if (!isnull(context.modifiers[key])) 
-        return context.modifiers[key].value(context);
-      if (!isnull(context.defaults[key])) 
-        return context.defaults[key].value(context);
+      var result = context.modifiers[key];
+      if (isnull(result)) 
+        result = context.defaults[key];
+      if (!isnull(result)) {
+        if (typeof result == 'function')
+          result = result();
+        return result;
+      }
     }
     return defvalue;
   }
@@ -1166,7 +967,7 @@ function ModifiedType(key, value, underlying) {
   this.toString = function (context) {
     if (["at", "select"].indexOf(this.key) >= 0) {
       return this.underlying.toString(context) + "." + this.key + "(" + 
-             this.value.toString(context) + ")";
+             this.value.toString() + ")";
     }
       
     if (isnull(context)) context = new Context();
@@ -1186,42 +987,33 @@ function ModifiedType(key, value, underlying) {
 
   this.deconstruct = function (context) {
     if (this.key === "at") {
-      context.bitten = this.value.value(context);
+      context.bitten = context.evaluate(this.value);
       context.adjusted = true;
       return this.underlying.deconstruct(context);
     }
 
     if (this.key === "select") {
       var result = this.underlying.deconstruct(context);
-      context.scope.unshift(result);
-      context.scope.unshift({this:result});
-      result = this.value.value(context);
-      context.scope.shift();
-      context.scope.shift();
+      if (typeof this.value == typeof '') 
+        result = result[this.value];
+      else
+        result = context.evaluate(this.value, result);
       return result;
     }
 
     if (this.key === "check") {
       var result = this.underlying.deconstruct(context);
-      context.scope.unshift(result);
-      context.scope.unshift({this:result});
-      var check = this.value.value(context);
-      context.scope.shift();
-      context.scope.shift();
+      var check = context.evaluate(this.value, result);
       if (!check)
-        throw new DeconError("Failed check: " + inspect(result) +
-                             " <> " + this.value.toString(context));
+        throw new DeconError("Failed check for: " + inspect(result) +
+                             ": " + check, context);
       return result;
     }      
 
     if (this.key === "if") {
       var wasbit = context.bitten;
       var result = this.underlying.deconstruct(context);
-      context.scope.unshift(result);
-      context.scope.unshift({this:result});
-      var check = this.value.value(context);
-      context.scope.shift();
-      context.scope.shift();
+      var check = context.evaluate(this.value, result);
       if (check) {
         return result;
       } else {
@@ -1232,20 +1024,20 @@ function ModifiedType(key, value, underlying) {
 
     if (this.key === "reconstruct") {
       // TODO: no one even asked for this feature
-      var c2 = new Context(new Buffer(this.value.value(context), 'binary'));
+      var c2 = new Context(new Buffer(context.evaluate(this.value), 'binary'));
       return this.underlying.deconstruct(c2);
     }
 
     if (this.key === "load") { 
       // TODO: don't know about this feature. Kind of breaks the model.
       // In particular is the -i parameter always expected?
-      var filename = this.value.value(context);
+      var filename = context.evaluate(this.value);
       return this.underlying.deconstructFile(filename);
     }
 
     if (this.key === "cast") {
       var c2 = new Context(new Buffer(this.underlying.deconstruct(context)));
-      return this.value.type(context).deconstruct(c2);
+      return context.evaluate(this.value).deconstruct(c2);
     }
 
     if (!isnull(context.modifiers[this.key])) {
@@ -1268,8 +1060,8 @@ function StructType(union) {
 
   function Field(name, type) {
     this.name = name;
-
     this.type = type;
+    assert.ok(!isnull(type));
 
     this.toString = function (context) {
       return type.toString(context) + (isnull(name) ? "" : (" " + name));
@@ -1325,7 +1117,7 @@ function StructType(union) {
           result = value;
           break;
         }
-        if (!isnull(field.name))
+        if (!isnull(field.name) && !field.name.startsWith("_"))
           result[field.name] = value;
       } catch (e) {
         if (!(e instanceof DeconError)) throw e;
@@ -1344,191 +1136,55 @@ function StructType(union) {
 function CheckedType(check, underlying) {
 
   this.toString = function (context) {
-    return underlying.toString(context) + " " + check.toString(context);
+    return underlying.toString(context) + ".equals(" + check + ")";
   }
 
   this.deconstruct = function (context) {
     var result = underlying.deconstruct(context);
-    if (!equal(check.value(context), result)){
+    if (!equal(context.evaluate(check, result), result)){
       throw new DeconError("Non-matching value. Expected: " + 
-                           inspect(check.value(context)) + ", got:" + 
-                           inspect(result), context);
+                           inspect(context.evaluate(check, result)) + 
+                           ", got:" +  inspect(result), context);
     }
     return result;
   }
 }
 
 
-function LiteralValue(value, type) {
-  this.value = function (context) {
-    return value;
-  }
-  
-  this.type = function (context) {
-    return type;
-  }
 
-  this.toString = function (context) {
-    return inspect(this.value());
-  }
-}
-
-
-function ReferenceValue(name) {
-  this.value = function (context) {
-    return dereference(context).value(context);
-  }
-  
-  this.type = function (context) {
-    return dereference(context).type(context);
-  }
-
-  this.toString = function (context) {
-    return name;
-  }
-
-  function dereference(context) {
-    for (var s = 0; s < context.scope.length; ++s)
-      if (!isnull(context.scope[s]) && !isnull(context.scope[s][name]))
-        return makeValue(context.scope[s][name]);
-    var result = CONSTANTS[name];
-    if (isnull(result) && name == "position")
-      result = makeValue(context.bitten);
-    if (isnull(result))
-      throw new DeconError("Undefined constant <" + name + ">", context);
-    return result;
-  }
-}
-
-
-function MapValue(keys, values) {
-  this.value = function (context) {
-    var result = {};
-    for (var i = 0; i < keys.length; ++i)
-      result[keys[i].value(context)] = values[i].value(context);
-    return result;
-  }
-
-  this.type = function (context) {
-    return new ReferenceType("null");  // TODO, I suppose?
-  }
-
-  this.toString = function (context) {
-    var result = "{";
-    for (var i = 0; i < keys.length; ++i) {
-      if (i > 0) result += ", ";
-      result += keys[i].toString(context) + ":" + values[i].toString(context);
-    }
-    return result + "}";
-  }
-}
-
-
-function ArrayValue(values) {
-  this.value = function (context) {
-    var result = [];
-    for (var i = 0; i < values.length; ++i)
-      result.push(values[i].value(context));
-    return result;
-  }
-
-  this.type = function (context) {
-    return new ArrayType(new ReferenceType("null"));  // TODO, I suppose?
-  }
-
-  this.toString = function (context) {
-    var result = "[" + values.length + ":";
-    for (var i = 0; i < values.length; ++i) {
-      if (i > 0) result += ", ";
-      result += values[i].toString(context);
-    }
-    return result + "]";
-  }
-}
-
-
-function ExpressionValue(left, operator, right) {
-  this.value = function (context) {
-    var result = left.value(context);
-    if (operator === ".") {
-      // Field access
-      context.scope.unshift(result);
-      result = right.value(context);
-      context.scope.shift();
-    } else if (operator === "[") {
-      // Index
-      var index = right.value(context);
-      result = result[index];
-    } else if (operator === "(") {
-      // Function call
-      var args = [];
-      for (var i = 0; i < right.length; ++i)
-        args[i] = right[i].value(context);
-      result = result.apply(context.result, args);
-    } else {
-      // Arithmetic
-      var rvalue = right.value(context);
-      // TODO: auto type conversion?
-      switch (operator) {
-      case "+":  result += rvalue;  break;
-      case "-":  result -= rvalue;  break;
-      case "*":  result *= rvalue;  break;
-      case "/":  result /= rvalue;  break;
-      case "&":  result &= rvalue;  break;
-      case "|":  result |= rvalue;  break;
-      case "=":  result = equal(result, rvalue);  break;
-      case ">":  result = (result > rvalue);  break;
-      case "<":  result = (result < rvalue);  break;
-      case "<<": result <<= rvalue;  break;
-      case ">>": result >>= rvalue;  break;
-      default: throw new DeconError("Internal Error: unknown operator " + 
-                                    operator, context);
-      }
-    }
-    return result;
-  }
-
-  this.type = function (context) {
-    return new ReferenceType("null");  // frankly, this would be a mess.
-  }
-
-  this.toString = function (context) {
-    if (operator === "[")
-      return left.toString(context) + "[" + right.toString(context) + "]";
-    else if (operator === "(")
-      return left.toString(context) + "(...)";// + right.toString(context) + ")";
+function typeForValue(v) {
+  if (isnull(v))
+    return new ReferenceType("null");
+  else if (typeof v == typeof true)
+    return new ReferenceType("bool");
+  else if (typeof v == typeof 1) {
+    if (-0x80 <= v && v < 0x80)
+      return new ReferenceType("int8");
+    else if (-0x8000 <= v && v < 0x8000)
+      return new ReferenceType("int16");
+    else if (-0x80000000 <= v && v < 0x80000000)
+      return new ReferenceType("int32");
     else
-      return "(" + left.toString(context) + " " + operator + " " + 
-                  right.toString(context) + ")";
-  }
-}
-
-
-function makeValue(value) {
-  if (isnull(value))
-    return new LiteralValue(value, new ReferenceType("null"));
-  else if (typeof value == typeof true)
-    return new LiteralValue(value, new ReferenceType("bool"));
-  else if (typeof value == typeof 1) {
-    if (value < 0x80)
-      return new LiteralValue(value, new ReferenceType("int8"));
-    else if (value < 0x8000)
-      return new LiteralValue(value, new ReferenceType("int16"));
-    else if (value < 0x80000000)
-      return new LiteralValue(value, new ReferenceType("int32"));
+      return new ReferenceType("int64");
+  } else if (Array.isArray(v)) {
+    if (v.length == 0)
+      return new ReferenceType("null").array(0);
     else 
-      return new LiteralValue(value, new ReferenceType("int64"));
-  } else if (typeof value == typeof '') {
-    return new LiteralValue(value, new ReferenceType("char").array(value.length));
-  } else  {
-    //throw new Error("Internal Error: Invalid parameter to makeValue: " + typeof value);
-    return new LiteralValue(value, new ReferenceType("object"));
+      typeForValue(v[0]).array(v.length);
+  } else if (typeof v == typeof "") {
+    return new ReferenceType("char").array(v.length);
+  } else if (typeof v == typeof {}) {
+    var result = new StructType();
+    each(v, function (v,k) { result.addField(k, typeForValue(v)); });
+    return result;
+  } else {
+    throw new DeconError("can't determine type from value");
   }
 }
 
 
 function modref(attr, val, ref) {
-  return new ModifiedType(attr, makeValue(val), new ReferenceType(ref));
+  return new ModifiedType(attr, val, new ReferenceType(ref));
 }
 
 var TYPES = {
@@ -1552,15 +1208,9 @@ var TYPES = {
   float32: modref("size", 32, "float"),
   float64: modref("size", 64, "float"),
 
-  cstring: new ArrayType(new ReferenceType("char"))
+  cstring: new ReferenceType("char").array({until: '\0'})
 }
-TYPES["cstring"].until = makeValue(0);
 
-var CONSTANTS = {
-  null:  makeValue(null),
-  false: makeValue(false),
-  true:  makeValue(true)
-};
 
 var GLOBALS = {
 };
@@ -1569,14 +1219,26 @@ var GLOBALS = {
 exports.struct = function (fields) {
   var result = new StructType(false);
   for (var name in fields) if (fields.hasOwnProperty(name)) {
-      result.addField(name, fields[name]);
+      var type = fields[name];
+      if (!(type instanceof Type))
+        type = exports.literal(type);
+      result.addField(name, type);
     }
   return result;
 };
 
+exports.union = function (fields) {
+  var result = new StructType(true);
+  fields.each(function (type) {
+      if (!(type instanceof Type))
+        type = exports.literal(type);
+      result.addField(null, type);
+    });
+  return result;
+};
+
 exports.literal = function (value) {
-  value = makeValue(value);
-  return new CheckedType(value, value.type());
+  return new CheckedType(value, typeForValue(value));
 };
 
 exports.string = function (limit) {
