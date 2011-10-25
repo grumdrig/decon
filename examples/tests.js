@@ -262,43 +262,57 @@ function ord(s, bigendian) {
   return result;
 }
 
-[string(3).equals("#ab"),
- char.array(3).equals("#ab"),
- char.array(5).if(true).equals("#abcd"),
- char.array(3).if(function(){return this+"" === "#ab"}).equals("#ab"),
- int8,
- int8.at(1).underlying,
- int8.at(1),
- int8.at(1).littleendian().equals(ord('a')),
- int8.at(1).bigendian().equals(ord('a')),
- int16.at(1).littleendian().equals(ord('ab')),
- int16.at(1).bigendian().equals(ord('ab', true)),
- int32.at(1).littleendian().equals(ord('abcd')),
- int32.at(1).bigendian().equals(ord('abcd', true))
-].each(test);
 
-[Test1,
- Test2,
- Test3,
- Test4,
- Test5,
- Test6,
- Test7,
- Test8,
- Test9,
- Test10,
- Test11,
- Test12,
- Test13,
- Test14,
- Test15,
- Test16,
- Test17,
- Test18,
- Test19,
- Test20,
- Test21,
- Test22
-].each(test);
+function each(obj, callback) {
+  if (Array.isArray(obj))
+    for (var i = 0; i < obj.length; ++i) 
+      callback(obj[i], i);
+  else
+    for (var p in obj) 
+      if (obj.hasOwnProperty(p)) 
+        callback(obj[p], p);
+}
+
+
+each([
+  string(3).equals("#ab"),
+  char.array(3).equals("#ab"),
+  char.array(5).if(true).equals("#abcd"),
+  char.array(3).if(function(){return this+"" === "#ab"}).equals("#ab"),
+  int8,
+  int8.at(1).underlying,
+  int8.at(1),
+  int8.at(1).littleendian().equals(ord('a')),
+  int8.at(1).bigendian().equals(ord('a')),
+  int16.at(1).littleendian().equals(ord('ab')),
+  int16.at(1).bigendian().equals(ord('ab', true)),
+  int32.at(1).littleendian().equals(ord('abcd')),
+  int32.at(1).bigendian().equals(ord('abcd', true))
+], test);
+
+each([
+  Test1,
+  Test2,
+  Test3,
+  Test4,
+  Test5,
+  Test6,
+  Test7,
+  Test8,
+  Test9,
+  Test10,
+  Test11,
+  Test12,
+  Test13,
+  Test14,
+  Test15,
+  Test16,
+  Test17,
+  Test18,
+  Test19,
+  Test20,
+  Test21,
+  Test22
+], test);
 
 console.log("OK");

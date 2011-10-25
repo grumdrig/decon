@@ -45,333 +45,10 @@ var UNARYMODS = {
   littleendian: ["bigendian", false]
 };
 
-function each(obj, callback) {
-  for (var p in obj) if (obj.hasOwnProperty(p)) callback(obj[p], p);
-}
-
 
 function isnull(x) {
   return (x === null || x === undefined || 
           typeof x === 'undefined' || typeof x === 'null');
-}
-
-function testMatch(input, expected) {
-  var m = new TokenMatcher(input);
-  for (var i = 0; i < expected.length; ++i) {
-    if (!m.find()) {
-      console.error("Can't match '" + input + "'");
-      process.exit(-3);
-    }
-    if (isnull(m.group(expected[i]))) {
-      for (var g = 0; g <= m.groupCount(); ++g)
-        console.error("" + g + ": '" + m.group(g) + "'");
-      console.error("Matching " + input + " to token type " + 
-                    T[expected[i]]);
-      console.error("Unexpected token '" + m.group() + "'");
-      process.exit(-3);
-    }
-  }
-}
-
-function testParseValue(input, expected) {
-  var d = parse(input, "value");
-
-  /*
-  if (!p.is(T.EOF)) {
-    console.error("Numeric test parse dangling stuff for '" + input + "'");
-    process.exit(-8);
-  }
-  */
-
-  var context = new Context();
-  if (!equal(context.evaluate(d), expected)) {
-    console.error("Unexpected value " + d.toString(context) + " expected " + 
-                  inspect(expected) + " for " + inspect(input));
-    process.exit(-9);
-  }
-}
-
-var assert = require("assert")
-
-function runTests() {
-  assert.equal(evalString("egg$"), "egg$");
-  assert.equal(evalString("\\r\\n"), "\r\n");
-  assert.equal(evalString("\\x7").charCodeAt(0), 7);
-  assert.equal(evalString("\\7").charCodeAt(0), 7);
-  assert.equal(evalString("\\007\\008").charCodeAt(0), 7);
-  assert.equal(evalString("\\007\\010").charCodeAt(1), 8);
-  assert.equal(evalString("\\b").charCodeAt(0), 8);
-  
-  assert.ok(isnull(runTests['nothing']));
-  assert.ok(!isnull(runTests));
-  assert.ok(isnull(null));
-  assert.ok(isnull(undefined));
-
-  testMatch("lcid", [ T.IDENTIFIER ]);
-  testMatch("UcId", [ T.IDENTIFIER ]);
-  testMatch("6", [ T.INTEGER ]);
-  testMatch("5.4", [ T.REAL ]);
-  testMatch(".", [ T.PUNCTUATION ]);
-  testMatch("\"la la la\"", [ T.QUOTED ]);
-  testMatch("\n", [ T.NEWLINE ]);
-  testMatch(";", [ T.NEWLINE ]);
-  testMatch("0x0", [ T.HEXNUMBER ]);
-  testMatch("0XABC", [ T.HEXNUMBER ]);
-  testMatch("*", [ T.OPERATOR ]);
-  testMatch("=", [ T.OPERATOR ]);
-  testMatch("* =", [ T.OPERATOR, T.OPERATOR ]);
-  testMatch(" {} ", [ T.PUNCTUATION, T.PUNCTUATION ]);
-  testMatch(" $$ ", [ T.ILLEGAL, T.ILLEGAL ]);
-  testMatch("{key:value}", [T.PUNCTATION, T.IDENTIFER, T.OPERATOR, T.IDENTIFIER,
-                            T.PUNCTUATION]);
-  
-  testParseValue("0", 0);
-  testParseValue("0.5", 0.5);
-  testParseValue("6", 6);
-  testParseValue("3", 3);
-  testParseValue("(2*3)", 2*3);
-  testParseValue("(3*2)", 3*2);
-  testParseValue("(-2*3/26)", -2*3/26);
-  testParseValue("0x20", 32);
-  testParseValue("\"\r\n\"", "\r\n");
-  testParseValue("' '", 32);
-  testParseValue("'d'", 100);
-  testParseValue("'c'", 99);
-  testParseValue("'abcd'", (97 << 24) + (98 << 16) + (99 << 8) + 100);
-  testParseValue("'\x45'", 0x45);
-  testParseValue("'\xee'", 0xee);
-  testParseValue("'\x00\x00\xaa\xee'", (0xaa << 8) + 0xee);
-  testParseValue("'\x00\x00\x80\x3f'", (0x80 << 8) + 0x3f);
-
-  return true;
-}
-
-
-function DeconParser(text) {
-
-  var tokenMatcher = new TokenMatcher(text);
-  if (!tokenMatcher.find()) 
-    throw new SyntaxError("Syntax error at start of file");
-
-  function advance() {
-    if (!tokenMatcher.find()) {
-      throw new SyntaxError("Unrecognised input");
-    }
-  }
-
-  this.lineno = function () {
-    return tokenMatcher.input.substring(0, tokenMatcher.pos).
-      split("\n").length;
-  };
-
-  this.errorContext = function () {
-    if (!tokenMatcher.match) return "illegal input";
-    var t = 3;
-    for (; !isnull(T[t]); ++t) {
-      if (!isnull(tokenMatcher.group(t))) {
-        t = T[t];
-        break;
-      }
-    }
-    return t + ": '" + tokenMatcher.group(T.TOKEN) + "'";
-  }
-
-  var is = this.is = function (tokenTypeOrLiteral) { 
-    if (typeof tokenTypeOrLiteral === typeof "") {
-      return tokenMatcher.group(T.TOKEN) === tokenTypeOrLiteral;
-    } else {
-      var result = tokenMatcher.group(tokenTypeOrLiteral);
-      if (!isnull(result) && !result)
-        return true;  // Can't return the match as the truth value
-      return result;
-    }
-  }
-
-  function take(something) {
-    if (isnull(something)) {
-      var result = tokenMatcher.group(T.TOKEN);
-      advance();
-      return result;
-    } else if (typeof something === typeof "") {
-      var literal = something;
-      if (!is(literal))
-        throw new SyntaxError("Expected literal '" + literal + "'");
-      return take();
-    } else {
-      var tokenType = something;
-      var result = tokenMatcher.group(tokenType);
-      if (isnull(result)) {
-        throw new SyntaxError("Expected " + T[tokenType]);
-      }
-      advance();
-      return result;
-    }
-  }
-
-
-  function tryToTake(literal) {
-    return (is(literal)) ? take(literal) : null;
-  }
-
-
-  function takeNewlines() {
-    take(T.NEWLINE); 
-    maybeTakeNewlines();
-  }
-
-  function maybeTakeNewlines() {
-    while (is(T.NEWLINE)) advance();
-  }
-
-  this.go = function () {
-    maybeTakeNewlines();
-    while (!is(T.EOF)) {
-      
-      if (tryToTake("import")) {
-        // import
-        var filename = take(T.QUOTED);
-        parseFile(filename);
-
-      } else if (tryToTake("<")) {
-        take("script"); take(">");
-        var match = /^([\s\S]*?)<\/script>/
-          .exec(tokenMatcher.input.substr(tokenMatcher.pos));
-        if (isnull(match)) throw new SyntaxError("Missing </script>");
-        tokenMatcher.pos += match[0].length;
-        var script = match[1];
-        process.binding("evals").Script.runInNewContext(script, GLOBALS);
-        advance();
-
-      } else {
-        var name = take(T.IDENTIFIER);
-        if (tryToTake(":")) {
-          // Type def
-          var type = parseType();
-          TYPES[name] = type;
-
-        } else {
-          // Constant def
-          take("=");
-          CONSTANTS[name] = parseExpression();
-        }
-      }
-      
-      if (!is(T.EOF)) takeNewlines();
-    }
-  };
-
-  var parseType = this.parseType = function() {
-    var type = tryToParseType();
-    if (isnull(type)) throw new SyntaxError("Type expected");
-    return type;
-  };
-
-  function tryToParseType() {
-    if (MODIFIERS.indexOf(is(T.IDENTIFIER)) >= 0) {
-      return new ModifiedType(take(T.IDENTIFIER), parseValue(), parseType());
-    } else if (!isnull(UNARYMODS[is(T.IDENTIFIER)])) {
-      var m = UNARYMODS[take(T.IDENTIFIER)];
-      return new ModifiedType(m[0], makeValue(m[1]), parseType());
-    } else if (tryToTake("cast")) {
-      take("(");
-      var to = parseType();
-      take(")");
-      return new ModifiedType("cast", new LiteralValue(null, to), parseType());
-    } 
-
-    if (is("union") || is("{")) {
-      // Struct/union      
-      var union = tryToTake("union");
-      var s = new StructType(union);
-      take("{");
-      for (maybeTakeNewlines(); !tryToTake("}"); ) {
-        // TODO: tokenizing should be refactored
-        var fieldnames = [null];
-        if (!union && is(T.IDENTIFIER)) {
-          var mark = tokenMatcher.mark();
-          var fieldnames = [take(T.IDENTIFIER)];
-          while (tryToTake(",") && is(T.IDENTIFIER))
-            fieldnames.push(take(T.IDENTIFIER));
-          if (!tryToTake(":")) {
-            tokenMatcher.reset(mark);
-            fieldnames = [null];
-          }
-        }
-
-        var fieldtype = tryToParseType();
-        if (isnull(fieldtype)) {
-          var fieldvalue = tryToParseValue(true);
-          if (isnull(fieldvalue)) 
-            throw new SyntaxError("Field type (or value) expected");
-          fieldtype = new CheckedType(fieldvalue, fieldvalue.type());
-        }
-
-        fieldnames.each(function (fieldname, i) {
-            s.addField(fieldname, fieldtype);
-          });
-
-          
-        if (tryToTake("}")) break;  // Allow closing brace w/o newline
-        takeNewlines();
-      }
-      var result = s;
-    } else if (is(T.IDENTIFIER)) {
-      // Reference named type
-      var result = new ReferenceType(take(T.IDENTIFIER));
-    } else {
-      return;
-    }
-
-    for (;;) {
-      if (tryToTake(".")) {
-        if (MODIFIERS.indexOf(is(T.IDENTIFIER)) >= 0) {
-          result = new ModifiedType(take(T.IDENTIFIER), parseValue(), result);
-        } else if (tryToTake("cast")) {
-          take("(");
-          var to = parseType();
-          take(")");
-          result = new ModifiedType("cast", new LiteralValue(null, to), result);
-        } else {
-          var mname = take(T.IDENTIFIER);
-          var m = UNARYMODS[mname];
-          if (isnull(m))
-            throw new SyntaxError("Invalid type modifier: " + mname);
-          result = new ModifiedType(m[0], makeValue(m[1]), result);
-        }
-      } else if (tryToTake("[")) {
-        result = new ArrayType(result);
-        for (;;) {
-          if (isnull(result.until) && tryToTake("until")) {
-            result.until = parseValue();
-          } else if (isnull(result.through) && tryToTake("through")) {
-            result.through = parseValue();
-          } else if (isnull(result.before) && tryToTake("before")) {
-            result.before = parseValue();
-          } else if (isnull(result.index) && tryToTake("index")) {
-            result.index = take(T.IDENTIFIER);
-          } else {
-            if (!isnull(result.length)) 
-              break;
-            result.length = tryToParseExpression();
-            if (isnull(result.length))
-              break;
-          }
-        }
-        take("]");
-      } else {
-        break;
-      }
-    }
-
-    var check = tryToParseValue(true);
-    if (!isnull(check)) 
-      result = new CheckedType(check, result);
-
-    return result;
-  }
-                             
-
-
 }
 
 
@@ -383,204 +60,15 @@ String.prototype.startsWith = function (prefix) {
 };
 
 
-Array.prototype.each = function (callback) {
-  for (var i = 0; i < this.length; ++i) 
-    callback(this[i], i);
-}
-
-
-function main() {
-  runTests();
-
-  var args = process.argv.slice(2);
-  var Main;
-  var mainname;
-  var submains = [];
-  var a = 0;
-  var partialok = null;
-  var verbose = 0;
-  var variable;
-  var infile = '/dev/stdin';
-  var outfile = null;
-  var readable = null;
-  for (; a < args.length; ++a) {
-    var arg = args[a];
-
-    if (arg === "-p") {
-      partialok = true;
-
-    } else if (arg == "-v") {
-      ++verbose;
-
-    } else if (arg == "-V") {
-      variable = args[++a];
-
-    } else if (arg == "-f") {
-      submains = args[++a].split(".");
-
-    } else if (arg === "-i") {
-      infile = args[++a];
-
-    } else if (arg === "-o") {
-      outfile = args[++a];
-
-    } else if (arg === "-h") {
-      readable = true;
-
-    } else if (arg.endsWith(".con")) {
-      parseFile(arg);
-
-    } else {
-      // Must be a type
-      if (!isnull(Main)) usage("Main already supplied");
-      Main = parse(arg, "type");
-    }
-  }
-  
-  if (isnull(Main))
-    usage("No main type specified");
-
-  try {
-    if (verbose) {
-      if (verbose > 1) {
-        console.error("TYPES:");
-        for (var k in TYPES)
-          if (TYPES.hasOwnProperty(k))
-            console.error(k + ": " + TYPES[k]);
-      }
-
-      console.error("MAIN:");
-      console.error(Main.toString(new Context()));
-    }
-
-    var tree = Main.deconstructFile(infile, partialok);
-  } catch (de) {
-    if (de instanceof DeconError) {
-      de.complain();
-    } else {
-      throw de;
-    }
-  }
-
-  while (submains.length > 0)
-    tree = tree[submains.shift()];
-
-  if (readable)
-    tree = inspect(tree, null, null);
-  else 
-    tree = JSON.stringify(tree);
-
-  if (variable) 
-    tree = "var " + variable + " = " + tree + ";";
-
-  if (isnull(outfile))
-    console.log(tree);
+function each(obj, callback) {
+  if (Array.isArray(obj))
+    for (var i = 0; i < obj.length; ++i) 
+      callback(obj[i], i);
   else
-    fs.writeFile(outfile, tree);
+    for (var p in obj) 
+      if (obj.hasOwnProperty(p)) 
+        callback(obj[p], p);
 }
-
-
-function usage(msg) {
-  if (!isnull(msg)) console.error(msg);
-  console.error("Usage: node decon.js [DEF.con...] MAIN [IN [OUT]]");
-  process.exit(302);
-}
-
-
-function readFile(filename) {
-  try {
-    return fs.readFileSync(filename, 'utf8');
-  } catch (e) {
-    console.error("Error reading file: '" + filename + "'");
-    console.log(e);
-    process.exit(1);
-    return null;
-  }
-}
-
-function evalString(s) {
-  // Evaluate escape sequences in string s
-  var result = "";
-  for (var i = 0; i < s.length; ++i) {
-    var c = s[i];
-    if (c === '\\') {
-      switch(s[++i]) {
-      case 'b':  result += '\b';  break;
-      case 'f':  result += '\f';  break;
-      case 'n':  result += '\n';  break;
-      case 'r':  result += '\r';  break;
-      case 't':  result += '\r';  break;
-        // TODO: these aren't very robust
-      case 'u':  
-        result += String.fromCharCode(parseInt(s.substr(++i, 4), 16));  
-        i += 3;  
-        break;
-      case '0':
-      case '1':
-      case '2':
-      case '3':
-      case '4':
-      case '5':
-      case '6':
-      case '7':
-        result += String.fromCharCode(parseInt(s.substr(i, 3), 8));
-        i += 2;  
-        break;
-      case 'x':  
-        result += String.fromCharCode(parseInt(s.substr(++i, 2), 16));
-        i += 1;  
-        break;
-      default:   result += c;     break;
-      }
-    } else {
-      result += c;
-    }
-  }
-  return result;
-}
-
-
-var parseFile = exports.import = function (filename) {
-  var program = readFile(filename);
-  assert.ok(!isnull(program));
-  try {
-    var p = new DeconParser(program);
-    p.go();
-  } catch (e) {
-    if (e instanceof SyntaxError) {
-      // TODO add context
-      console.error("SYNTAX ERROR [" + filename + ":" + 
-                    (p ? p.lineno() : 0) + "]: " + 
-                    e.problem + (p ? " at "+p.errorContext() : ""));
-      console.error(e.stack);
-      process.exit(-1);
-    }
-    throw e;
-  }
-}
-
-  
-var parse = exports.parse = function (string, what) {
-  try {
-    var p = new DeconParser(string);
-    if (what == "type")
-      return p.parseType();
-    else if (what === "value")
-      return p.parseValue();
-    else
-      p.go();
-  } catch (e) {
-    if (e instanceof SyntaxError) {
-      // TODO add context
-      console.error("SYNTAX ERROR [" + (p ? p.lineno() : 0) + "]: " + 
-                    e.problem + (p ? " at "+p.errorContext() : ""));
-      console.error(e.stack);
-      process.exit(-1);
-    }
-    throw e;
-  }
-  return TYPES;
-};
 
 
 function Context(buffer, symbols) {
@@ -613,7 +101,7 @@ function Context(buffer, symbols) {
 
   this.evaluate = function (v, that) {
     var scope = {position: this.bitten};
-    this.scope.each(function (s) { each(s,function(v,k){scope[k] = v;}); });
+    each(this.scope, function (s) { each(s,function(v,k){scope[k] = v;}); });
     while (typeof v == 'function')
       v = v.call(that, scope);
     return v;
@@ -675,7 +163,7 @@ function Type() {
   };
 
   var that = this;
-  MODIFIERS.each(function (m,i) {
+  each(MODIFIERS, function (m,i) {
       that[m] = function (v) { return new ModifiedType(m, v, this); };
     });
   each(UNARYMODS, function (v,m) {
@@ -1063,7 +551,6 @@ function StructType(union) {
   function Field(name, type) {
     this.name = name;
     this.type = type;
-    assert.ok(!isnull(type));
 
     this.toString = function (context) {
       return type.toString(context) + (isnull(name) ? "" : (" " + name));
@@ -1231,7 +718,7 @@ exports.struct = function (fields) {
 
 exports.union = function (fields) {
   var result = new StructType(true);
-  fields.each(function (type) {
+  each(fields, function (type) {
       if (!(type instanceof Type))
         type = exports.literal(type);
       result.addField(null, type);
@@ -1270,7 +757,3 @@ exports.insert = function (value) {
 
 for (var t in TYPES) if (TYPES.hasOwnProperty(t)) exports[t] = TYPES[t];
 
-
-if (require.main === module) {
-  main();
-}
