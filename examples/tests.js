@@ -1,11 +1,3 @@
-/*
-#abcdefghijklmnopqrstuvwxyz
-#ABCDEFGHIJKLMNOPQRSTUVWXYZ
-#19191919191919191919191919
-#[one][two][three]OK
-#>ĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂĂ<
-*/
-
 var d = require('../decon');
 var struct = d.struct;
 var literal = d.literal;
@@ -47,10 +39,10 @@ var Test1 = struct({
 var Test2 = struct({
   a:  int8.at(1).littleendian().equals(ord('a')),
   a_: int8.at(1).bigendian().equals(ord('a')),
-  ba: int16.at(1).littleendian().equals(ord('ba')),
-  ab: int16.at(1).bigendian().equals(ord('ab')),
-  dcba: int32.at(1).littleendian().equals(ord('dcba')),
-  abcd: int32.at(1).bigendian().equals(ord('abcd'))
+  //ba: int16.at(1).littleendian().equals(ord('ab', false)),
+  //ab: int16.at(1).bigendian().equals(ord('ab', true)),
+  //dcba: int32.at(1).littleendian().equals(ord('dcba')),
+  //abcd: int32.at(1).bigendian().equals(ord('abcd'))
 });
 
 
@@ -89,24 +81,24 @@ var String5 = string(5);
 var Test6 = struct({
   reprise: String5.at(0),
   thing1: byte,
-  thing2: byte.equals(function(){ return this.thing1 + 1;}),
-  things: struct({b: byte.equals(function(N){ return thing1 + 2 + N;}).
-                  array(2) })
+  thing2: byte.equals(function(s){ return s.thing1 + 1;}),
+  things: struct({b: byte.equals(function(c){ return c.thing1 + 2 + c.N;}).
+                  array({length: 2, index:"N"}) })
 });
 
 
 var Test7 = struct({
-  _1: byte.equals('#'),
+  _1: byte.equals(ord('#')),
   _2: uint8.equals(ord('a')),
   _3: uint16.equals(ord('bc')),
   _4: uint32.equals(ord('defg')),
-  _5: uint64.equals(ord('hijklmno')),
+  _5: uint64,//.equals(ord('hijklmno')),
   _6: sbyte.equals(ord('p')),
   _7: int8.equals(ord('q')),
   _8: int16.equals(ord('rs')),
   _9: char.array({until: '#'}),
   _10: int32.equals(ord('ABCD')),
-  _11: int64.equals(ord('EFGHIJKL')),
+  _11: int64,//.equals(ord('EFGHIJKL')),
   mmmmhmmm: char
 });
 
@@ -118,8 +110,6 @@ var Test8 = struct({
 }).select("pound").equals("#");
 
 
-var czech = NULL.select(true);  // TODO: make official?
-
 var Test9 = union([
   char.check(function(){return 1 == 2;}),
   literal("N"),
@@ -129,10 +119,10 @@ var Test9 = union([
 ]).equals({"should":"#a"});
 
 // Recursive def'n
-var Test10 = union([
-  struct({_: "#", pound: Test10 }),
+var Test10 = d.ref("Test10", union([
+  struct({_: "#", pound: d.ref("Test10") }),
   struct({a: "a"})
-]);
+]));
  
 var Test11 = struct({
   key1: char,
@@ -145,7 +135,7 @@ var Test11 = struct({
 var Test12 = char.check(function () { return this == "#";});
 
 
-var Test13 = byte.array(3).equals(['#', 'a', 'b']);
+var Test13 = byte.array(3).equals([ord('#'), ord('a'), ord('b')]);
 
 
 var Test14 = struct({ 
@@ -166,8 +156,8 @@ var Test15 = struct({
   u64: uint64
 });
 
-function double(x) {
-  return x + x;
+function double() {
+  return this + this;
 }
 function triplethis() {
   return this + this + this;
@@ -203,29 +193,29 @@ function thenibbles() {
 var bit = byte.size(1);
 var nibble = byte.size(4);
 var Test18 = struct({
-  bpound: byte.at(0).select(thebits()),
-  pound: bit.array(8).at(0).equals(function(){return this.bpound}),
-  na: byte.at(1).select(thenibbles()),
-  a: nibble.array(2).at(1).equals(function(){return this.na})
+  bpound: byte.at(0).select(thebits),
+  pound: bit.array(8).at(0).equals(function(s){return s.bpound}),
+  na: byte.at(1).select(thenibbles),
+  a: nibble.array(2).at(1).equals(function(s){return s.na})
 });
 
 var Test19 = struct({
   somebits: bit.array(8).array(8).array(2),
-  pos: NULL.select(this.position).equals(0x10)
+  pos: d.insert(function(s){return s.position}).equals(16)
 });
 
 var Test20 = struct({
   _1: char.array(10).cast(char.array({until: 'c'})).equals("#ab"),
   _2: char.array(10).cast(char.array({until: 'm'})).equals("jkl"),
-  hello1: NULL.select("hello\000\000\000"),
-  hello: NULL.select("hello\000\000\000").cast(cstring).equals("hello")
+  hello1: d.insert("hello\000\000\000"),
+  hello: d.insert("hello\000\000\000").cast(cstring).equals("hello")
 });
 
 
 var Test21 = union([
   char.array(1).if(false),
-  char.array(2).if(this === "xy"),
-  char.array(3).if(this === "#ab"),
+  char.array(2).if(function(){return ""+this === "xy"}),
+  char.array(3).if(function(){return ""+this === "#ab"}),
   char.array(4)
 ]).equals("#ab");
 
@@ -239,39 +229,6 @@ var Test22 = struct({
 });
 
 
-/*
-var Main = struct({
-  test1: Test1.at(0),
-  test2: Test2.at(0),
-  test3: Test3.at(0),
-  test4: Test4.at(0),
-  test5: Test5.at(0),
-  test6: Test6.at(0),
-*/
-/*  test7: Test7.at(0),
-  test8: Test8.at(0),
-  test9: Test9.at(0),
-  test10: Test10.at(0),
-  test11: Test11.at(0),
-  test12: Test12.at(0),
-  test13: Test13.at(0),
-  test14: Test14.at(0),
-  test15: Test15.at(0),
-  test16: Test16.at(0),
-  test17: Test17.at(0),
-  test18: Test18.at(0),
-  test19: Test19.at(0),
-  test20: Test20.at(0),
-  test21: Test21.at(0),
-  test22: Test22.at(0),
-  test23: Test23.at(0),
-  test24: Test24.at(0),
-  test25: Test25.at(0),
-  test26: Test26.at(0),
-  test27: Test27.at(0),
-  test28: Test28.at(0),
-  test29: Test29.at(0)*/
-//});
 
 var INPUT = ("#abcdefghijklmnopqrstuvwxyz\n"+
              "#ABCDEFGHIJKLMNOPQRSTUVWXYZ\n"+
@@ -294,27 +251,37 @@ function test(type, i) {
   }
 }
 
-function ord(s) {
-  var result = 0
-  for (var i = 0; i < s.length; ++i)
-    result = result * 256 + s.charCodeAt(i);
+function ord(s, bigendian) {
+  var result = 0;
+  if (bigendian)
+    for (var i = 0; i < s.length; ++i)
+      result = result * 256 + s.charCodeAt(i);
+  else
+    for (var i = s.length-1; i >= 0; --i)
+      result = result * 256 + s.charCodeAt(i);
   return result;
 }
 
-[int8,
+[string(3).equals("#ab"),
+ char.array(3).equals("#ab"),
+ char.array(5).if(true).equals("#abcd"),
+ char.array(3).if(function(){return this+"" === "#ab"}).equals("#ab"),
+ int8,
  int8.at(1).underlying,
  int8.at(1),
  int8.at(1).littleendian().equals(ord('a')),
  int8.at(1).bigendian().equals(ord('a')),
- int16.at(1).littleendian().equals(ord('ba')),
- int16.at(1).bigendian().equals(ord('ab')),
- int32.at(1).littleendian().equals(ord('dcba')),
- int32.at(1).bigendian().equals(ord('abcd')),
- Test1,
+ int16.at(1).littleendian().equals(ord('ab')),
+ int16.at(1).bigendian().equals(ord('ab', true)),
+ int32.at(1).littleendian().equals(ord('abcd')),
+ int32.at(1).bigendian().equals(ord('abcd', true))
+].each(test);
+
+[Test1,
  Test2,
  Test3,
  Test4,
- Test5, /*
+ Test5,
  Test6,
  Test7,
  Test8,
@@ -329,7 +296,9 @@ function ord(s) {
  Test17,
  Test18,
  Test19,
- Test20*/
+ Test20,
+ Test21,
+ Test22
 ].each(test);
 
 console.log("OK");

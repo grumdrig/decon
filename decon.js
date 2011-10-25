@@ -612,8 +612,10 @@ function Context(buffer, symbols) {
   }
 
   this.evaluate = function (v, that) {
+    var scope = {position: this.bitten};
+    this.scope.each(function (s) { each(s,function(v,k){scope[k] = v;}); });
     while (typeof v == 'function')
-      v = v.call(that);
+      v = v.call(that, scope);
     return v;
   }
 
@@ -688,6 +690,7 @@ AtomicType.prototype = new Type();
 ModifiedType.prototype = new Type();
 StructType.prototype = new Type();
 CheckedType.prototype = new Type();
+InsertionType.prototype = new Type();
 
 
 function ReferenceType(name) {
@@ -994,10 +997,9 @@ function ModifiedType(key, value, underlying) {
 
     if (this.key === "select") {
       var result = this.underlying.deconstruct(context);
-      if (typeof this.value == typeof '') 
-        result = result[this.value];
-      else
-        result = context.evaluate(this.value, result);
+      if (typeof this.value == typeof '' && !isnull(result[this.value]))
+        return result[this.value];
+      result = context.evaluate(this.value, result);
       return result;
     }
 
@@ -1243,6 +1245,27 @@ exports.literal = function (value) {
 
 exports.string = function (limit) {
   return new ArrayType(new ReferenceType("char"), limit);
+};
+
+//TODO: should we trash this concept?
+exports.ref = function (name, type) {
+  if (isnull(type))
+    return new ReferenceType(name);
+  else
+    return TYPES[name] = type;  // or return referencetype?
+};
+
+
+function InsertionType(value) {
+  this.deconstruct = function (context) {
+    return context.evaluate(value);
+  }
+};
+  
+
+// TODO: name overloaded - confusing
+exports.insert = function (value) {
+  return new InsertionType(value);
 };
 
 for (var t in TYPES) if (TYPES.hasOwnProperty(t)) exports[t] = TYPES[t];
