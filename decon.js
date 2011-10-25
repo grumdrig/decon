@@ -147,6 +147,22 @@ function Type() {
     return result;
   };
   
+  this.parseFile = function (filename, partialok) {
+    try {
+      return this.deconstructFile(filename, partialok);
+    } catch (de) {
+      if (de.complain) de.complain(); else throw de;
+    }
+  };
+
+  this.parse = function (string, partialok) {
+    try {
+      return this.deconstructString(string, partialok);
+    } catch (de) {
+      if (de.complain) de.complain(); else throw de;
+    }
+  };
+
   this.isAscii = function (context) { return false; };
 
   this.dereference = function (context) { return this; };
@@ -601,7 +617,9 @@ function StructType(union) {
       try {
         var unbitten = context.bitten;
         var field = fields[i];
+        context.stack.unshift(field.name);
         var value = field.type.deconstruct(context);
+        context.stack.shift();
         if (union && (typeof value != 'undefined')) {
           result = value;
           break;
