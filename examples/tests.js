@@ -287,7 +287,14 @@ each([
   int16.at(1).littleendian().equals(ord('ab')),
   int16.at(1).bigendian().equals(ord('ab', true)),
   int32.at(1).littleendian().equals(ord('abcd')),
-  int32.at(1).bigendian().equals(ord('abcd', true))
+  int32.at(1).bigendian().equals(ord('abcd', true)),
+  string(0).equals(""),
+  char.array(0).equals(""),
+  byte.array(0).equals([]),
+  d.insert('abc').cast(byte.array(3)).equals([97,98,99]),
+  d.insert([97,98,99]).cast(string(3)).equals('abc'),
+  d.insert('').cast(byte.array(0)).equals([]),
+  d.insert([]).cast(string(0)).equals(''),
 ], test);
 
 each([
@@ -315,4 +322,4 @@ each([
   Test22
 ], test);
 
-console.log("OK");
+console.log("\nOK");

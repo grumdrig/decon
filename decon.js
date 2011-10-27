@@ -37,7 +37,7 @@ function DeconError(problem, context) {
 }
 
 var MODIFIERS = ["size", "at", "select", "check", "if", "load", 
-                 "reconstruct", "cast"];
+                 "reconstruct"];
 var UNARYMODS = {
   unsigned: ["signed", false],
   signed: ["signed", true],
@@ -139,7 +139,7 @@ function Type() {
   
   this.deconstructString = function (string, partialok) {
     var inbuf = new Buffer(string);
-    var context = new Context(inbuf, {});
+    var context = new Context(inbuf);
     var result = this.deconstruct(context);
     if (isnull(partialok)) partialok = context.adjusted;
     if (!partialok && !context.eof())
@@ -178,6 +178,10 @@ function Type() {
     return new CheckedType(value, this);
   };
 
+  this.cast = function (newtype) {
+    return new CastType(this, newtype);
+  };
+
   var that = this;
   each(MODIFIERS, function (m,i) {
       that[m] = function (v) { return new ModifiedType(m, v, this); };
@@ -192,6 +196,7 @@ ReferenceType.prototype = new Type();
 ArrayType.prototype = new Type();
 AtomicType.prototype = new Type();
 ModifiedType.prototype = new Type();
+CastType.prototype = new Type();
 StructType.prototype = new Type();
 CheckedType.prototype = new Type();
 InsertionType.prototype = new Type();
@@ -541,11 +546,6 @@ function ModifiedType(key, value, underlying) {
       return this.underlying.deconstructFile(filename);
     }
 
-    if (this.key === "cast") {
-      var c2 = new Context(new Buffer(this.underlying.deconstruct(context)));
-      return context.evaluate(this.value).deconstruct(c2);
-    }
-
     if (!isnull(context.modifiers[this.key])) {
       return this.underlying.deconstruct(context);
     } else {
@@ -558,6 +558,24 @@ function ModifiedType(key, value, underlying) {
 
       return result;
     }
+  }
+}
+
+
+function CastType(underlying, replacement) {
+
+  this.toString = function (context) {
+    return underlying.toString(context) + ".cast(" + 
+                              replacement.toString(context) + ")";
+  }
+
+  this.isAscii = function (context) {
+    return replacement.isAscii(context);
+  }
+
+  this.deconstruct = function (context) {
+    var c2 = new Context(new Buffer(underlying.deconstruct(context)));
+    return context.evaluate(replacement).deconstruct(c2);
   }
 }
 
