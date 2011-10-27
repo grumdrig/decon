@@ -3,7 +3,7 @@
 // TODO: get rid of "base"?
 // TODO: bigint. see https://github.com/substack/node-bigint
 //                or https://github.com/dankogai/js-math-bigint
-// TODO: get rid of "check", use "czech" formula if needed
+// TODO: get rid of Type.check, use NULL.select(true).equals(...) if needed?
 
 var fs = require("fs");
 var inspect = require("util").inspect;
@@ -36,8 +36,7 @@ function DeconError(problem, context) {
   };
 }
 
-var MODIFIERS = ["size", "at", "select", "check", "if", "load", 
-                 "reconstruct"];
+var MODIFIERS = ["size", "at", "select", "if", "load", "reconstruct"];
 var UNARYMODS = {
   unsigned: ["signed", false],
   signed: ["signed", true],
@@ -175,7 +174,11 @@ function Type() {
   };
 
   this.equals = function (value) {
-    return new CheckedType(value, this);
+    return new ValuedType(this, value);
+  };
+
+  this.check = function (test) {
+    return new TestedType(this, test);
   };
 
   this.cast = function (newtype) {
@@ -198,7 +201,8 @@ AtomicType.prototype = new Type();
 ModifiedType.prototype = new Type();
 CastType.prototype = new Type();
 StructType.prototype = new Type();
-CheckedType.prototype = new Type();
+ValuedType.prototype = new Type();
+TestedType.prototype = new Type();
 InsertionType.prototype = new Type();
 
 
@@ -512,15 +516,6 @@ function ModifiedType(key, value, underlying) {
       return result;
     }
 
-    if (this.key === "check") {
-      var result = this.underlying.deconstruct(context);
-      var check = context.evaluate(this.value, result);
-      if (!check)
-        throw new DeconError("Failed check for: " + inspect(result) +
-                             ": " + check, context);
-      return result;
-    }      
-
     if (this.key === "if") {
       var wasbit = context.bitten;
       var result = this.underlying.deconstruct(context);
@@ -658,23 +653,39 @@ function StructType(union) {
 }
 
 
-function CheckedType(check, underlying) {
+function ValuedType(underlying, value) {
 
   this.toString = function (context) {
-    return underlying.toString(context) + ".equals(" + check + ")";
-  }
+    return underlying.toString(context) + ".equals(" + value + ")";
+  };
 
   this.deconstruct = function (context) {
     var result = underlying.deconstruct(context);
-    if (!equal(context.evaluate(check, result), result)){
+    if (!equal(context.evaluate(value, result), result)){
       throw new DeconError("Non-matching value. Expected: " + 
-                           inspect(context.evaluate(check, result)) + 
+                           inspect(context.evaluate(value, result)) + 
                            ", got:" +  inspect(result), context);
     }
     return result;
   }
 }
 
+
+function TestedType(underlying, test) {
+
+  this.toString = function (context) {
+    return underlying.toString(context) + ".check(" + test + ")";
+  };
+
+  this.deconstruct = function (context) {
+    var result = underlying.deconstruct(context);
+    var check = context.evaluate(test, result);
+    if (!check)
+      throw new DeconError("Failed check for: " + inspect(result) +
+                           ": " + test, context);
+    return result;
+  };
+}
 
 
 function typeForValue(v) {
@@ -763,7 +774,7 @@ exports.union = function (fields) {
 };
 
 exports.literal = function (value) {
-  return new CheckedType(value, typeForValue(value));
+  return new ValuedType(typeForValue(value), value);
 };
 
 exports.string = function (limit) {
