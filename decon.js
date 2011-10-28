@@ -36,7 +36,7 @@ function DeconError(problem, context) {
   };
 }
 
-var MODIFIERS = ["size", "at", "select", "if", "load", "reconstruct"];
+var MODIFIERS = ["size", "at", "load", "reconstruct"];
 var UNARYMODS = {
   unsigned: ["signed", false],
   signed: ["signed", true],
@@ -173,6 +173,14 @@ function Type() {
     return new ArrayType(this, limit);
   };
 
+  this.if = function (replacement) {
+    return new IfType(this, replacement);
+  };
+
+  this.select = function (replacement) {
+    return new SelectType(this, replacement);
+  };
+
   this.equals = function (value) {
     return new ValuedType(this, value);
   };
@@ -199,6 +207,8 @@ ReferenceType.prototype = new Type();
 ArrayType.prototype = new Type();
 AtomicType.prototype = new Type();
 ModifiedType.prototype = new Type();
+IfType.prototype = new Type();
+SelectType.prototype = new Type();
 CastType.prototype = new Type();
 StructType.prototype = new Type();
 ValuedType.prototype = new Type();
@@ -481,7 +491,7 @@ function ModifiedType(key, value, underlying) {
 
 
   this.toString = function (context) {
-    if (["at", "select"].indexOf(this.key) >= 0) {
+    if (["at"].indexOf(this.key) >= 0) {
       return this.underlying.toString(context) + "." + this.key + "(" + 
              this.value.toString() + ")";
     }
@@ -507,26 +517,6 @@ function ModifiedType(key, value, underlying) {
       context.adjusted = true;
       return this.underlying.deconstruct(context);
     }
-
-    if (this.key === "select") {
-      var result = this.underlying.deconstruct(context);
-      if (typeof this.value == typeof '' && !isnull(result[this.value]))
-        return result[this.value];
-      result = context.evaluate(this.value, result);
-      return result;
-    }
-
-    if (this.key === "if") {
-      var wasbit = context.bitten;
-      var result = this.underlying.deconstruct(context);
-      var check = context.evaluate(this.value, result);
-      if (check) {
-        return result;
-      } else {
-        context.bitten = wasbit;
-        return;
-      }
-    }      
 
     if (this.key === "reconstruct") {
       // TODO: no one even asked for this feature
@@ -556,6 +546,48 @@ function ModifiedType(key, value, underlying) {
   }
 }
 
+
+function IfType(underlying, test) {
+
+  this.toString = function (context) {
+    return underlying.toString(context) + ".if(" + 
+                                               test.toString(context) + ")";
+  }
+
+  this.isAscii = function (context) { return underlying.isAscii(context); }
+
+  this.deconstruct = function (context) {
+    var wasbit = context.bitten;
+    var result = underlying.deconstruct(context);
+    var check = context.evaluate(test, result);
+    if (check) {
+      return result;
+    } else {
+      context.bitten = wasbit;
+      return;
+    }
+  }      
+}
+
+
+function SelectType(underlying, replacement) {
+
+  this.toString = function (context) {
+    return underlying.toString(context) + ".select(" + 
+                              replacement.toString(context) + ")";
+  }
+
+  this.isAscii = function (context) {
+    return typeof replacement == typeof '';
+  }
+
+  this.deconstruct = function (context) {
+    var result = underlying.deconstruct(context);
+    if (typeof replacement == typeof '' && !isnull(result[replacement]))
+      return result[replacement];
+    return context.evaluate(replacement, result);
+  }
+}
 
 function CastType(underlying, replacement) {
 
