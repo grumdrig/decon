@@ -215,6 +215,7 @@ function Type() {
 
 ReferenceType.prototype = new Type();
 ArrayType.prototype = new Type();
+NullType.prototype = new Type();
 AtomicType.prototype = new Type();
 ModifiedType.prototype = new Type();
 AtType.prototype = new Type();
@@ -331,6 +332,12 @@ function ArrayType(element, optLen) {
   }
 }
 
+
+function NullType() {
+  this.toString = function (context) { return 'Ø'; }
+  this.deconstruct = function (context) { return context.result = null; }
+}
+ 
 
 function AtomicType(basis) {
   function attr(context, key, defvalue) {
@@ -799,7 +806,7 @@ function modref(attr, val, ref) {
 }
 
 var TYPES = {
-  null: new AtomicType({base: 0, size: 0}),
+  null: new NullType(),
   bool: new AtomicType({base: 2}),
   char: new AtomicType({base: 256}),
   byte: new AtomicType({}),
@@ -850,6 +857,10 @@ exports.union = function (fields) {
 
 exports.literal = function (value) {
   return new EqualsType(typeForValue(value), value);
+};
+
+exports.load = function (filename, type) {
+  return new LoadType(type, filename);
 };
 
 exports.string = function (limit) {
