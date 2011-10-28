@@ -222,6 +222,7 @@ var Test21 = union([
 
 var Test22 = struct({
   le32: float32.littleendian().reconstruct([0,0,0x80,0x3f]).equals(1),
+  le32b: d.insert([0,0,0x80,0x3f]).cast(float32.littleendian()).equals(1),
   le32a: float32.littleendian().reconstruct("\x00\x00\x80\x3f").equals(1),
   be32: float32.bigendian().reconstruct([0x3f,0x80,0,0]).equals(1),
   le64: float64.littleendian().reconstruct("\x55\x55\x55\x55\x55\x55\xd5\x3f").equals(0.33333333333333333),
@@ -280,7 +281,6 @@ each([
   char.array(5).if(true).equals("#abcd"),
   char.array(3).if(function(){return this+"" === "#ab"}).equals("#ab"),
   int8,
-  int8.at(1).underlying,
   int8.at(1),
   int8.at(1).littleendian().equals(ord('a')),
   int8.at(1).bigendian().equals(ord('a')),

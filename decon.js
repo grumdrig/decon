@@ -36,14 +36,6 @@ function DeconError(problem, context) {
   };
 }
 
-var MODIFIERS = ["size", "at", "load", "reconstruct"];
-var UNARYMODS = {
-  unsigned: ["signed", false],
-  signed: ["signed", true],
-  bigendian: ["bigendian", true],
-  littleendian: ["bigendian", false]
-};
-
 
 function isnull(x) {
   return (x === null || x === undefined || 
@@ -173,6 +165,18 @@ function Type() {
     return new ArrayType(this, limit);
   };
 
+  this.at = function (position) {
+    return new AtType(this, position);
+  };
+
+  this.reconstruct = function (data) {
+    return new ReconstructionType(this, data);
+  };
+  
+  this.load = function (filename) {
+    return new LoadType(this, filename);
+  };
+
   this.if = function (replacement) {
     return new IfType(this, replacement);
   };
@@ -182,7 +186,7 @@ function Type() {
   };
 
   this.equals = function (value) {
-    return new ValuedType(this, value);
+    return new EqualsType(this, value);
   };
 
   this.check = function (test) {
@@ -193,13 +197,19 @@ function Type() {
     return new CastType(this, newtype);
   };
 
-  var that = this;
-  each(MODIFIERS, function (m,i) {
-      that[m] = function (v) { return new ModifiedType(m, v, this); };
-    });
-  each(UNARYMODS, function (v,m) {
-      that[m] = function () { return new ModifiedType(v[0], v[1], this); };
-    });
+  this.size = function (size) {
+    return new ModifiedType("size", size, this);
+  };
+
+  this.signed = function () { 
+    return new ModifiedType("signed", true, this);  };
+  this.unsigned = function () { 
+    return new ModifiedType("signed", false, this); };
+
+  this.bigendian = function () { 
+    return new ModifiedType("bigendian", true, this); };
+  this.littleendian = function () { 
+    return new ModifiedType("bigendian", false, this); };
 }
 
 
@@ -207,11 +217,14 @@ ReferenceType.prototype = new Type();
 ArrayType.prototype = new Type();
 AtomicType.prototype = new Type();
 ModifiedType.prototype = new Type();
+AtType.prototype = new Type();
+ReconstructionType.prototype = new Type();
+LoadType.prototype = new Type();
 IfType.prototype = new Type();
 SelectType.prototype = new Type();
 CastType.prototype = new Type();
 StructType.prototype = new Type();
-ValuedType.prototype = new Type();
+EqualsType.prototype = new Type();
 TestedType.prototype = new Type();
 InsertionType.prototype = new Type();
 
@@ -512,25 +525,6 @@ function ModifiedType(key, value, underlying) {
   }
 
   this.deconstruct = function (context) {
-    if (this.key === "at") {
-      context.bitten = context.evaluate(this.value);
-      context.adjusted = true;
-      return this.underlying.deconstruct(context);
-    }
-
-    if (this.key === "reconstruct") {
-      // TODO: no one even asked for this feature
-      var c2 = new Context(new Buffer(context.evaluate(this.value), 'binary'));
-      return this.underlying.deconstruct(c2);
-    }
-
-    if (this.key === "load") { 
-      // TODO: don't know about this feature. Kind of breaks the model.
-      // In particular is the -i parameter always expected?
-      var filename = context.evaluate(this.value);
-      return this.underlying.deconstructFile(filename);
-    }
-
     if (!isnull(context.modifiers[this.key])) {
       return this.underlying.deconstruct(context);
     } else {
@@ -543,6 +537,55 @@ function ModifiedType(key, value, underlying) {
 
       return result;
     }
+  }
+}
+
+
+function AtType(underlying, position) {
+
+  this.toString = function (context) {
+    return underlying.toString(context) + ".at(" + position + ")";
+  }
+
+  this.isAscii = function (context) { return underlying.isAscii(context); }
+
+  this.deconstruct = function (context) {
+    context.bitten = context.evaluate(position);
+    context.adjusted = true;
+    return underlying.deconstruct(context);
+  }
+}
+
+
+function ReconstructionType(underlying, data) {
+  // TODO: no one even asked for this feature
+  // a.reconstruct(b) can be replaced by insert(b).cast(a)
+
+  this.toString = function (context) {
+    return underlying.toString(context) + ".reconstruct(" + data + ")";
+  }
+
+  this.isAscii = function (context) { return underlying.isAscii(context); }
+
+  this.deconstruct = function (context) {
+    var c2 = new Context(new Buffer(context.evaluate(data), 'binary'));
+    return underlying.deconstruct(c2);
+  }
+}
+
+function LoadType(underlying, filename) {
+  // TODO: don't know about this feature. Kind of breaks the model.
+  // Plus, a.load(b) can be repl by insert(fs.readfileorsomething(b)).cast(a)
+
+  this.toString = function (context) {
+    return underlying.toString(context) + ".load(" + filename + ")";
+  }
+
+  this.isAscii = function (context) { return underlying.isAscii(context); }
+
+  this.deconstruct = function (context) {
+    var fname = context.evaluate(filename);
+    return underlying.deconstructFile(fname);
   }
 }
 
@@ -685,7 +728,7 @@ function StructType(union) {
 }
 
 
-function ValuedType(underlying, value) {
+function EqualsType(underlying, value) {
 
   this.toString = function (context) {
     return underlying.toString(context) + ".equals(" + value + ")";
@@ -738,7 +781,7 @@ function typeForValue(v) {
     if (v.length == 0)
       return new ReferenceType("null").array(0);
     else 
-      typeForValue(v[0]).array(v.length);
+      return typeForValue(v[0]).array(v.length);
   } else if (typeof v == typeof "") {
     return new ReferenceType("char").array(v.length);
   } else if (typeof v == typeof {}) {
@@ -806,7 +849,7 @@ exports.union = function (fields) {
 };
 
 exports.literal = function (value) {
-  return new ValuedType(typeForValue(value), value);
+  return new EqualsType(typeForValue(value), value);
 };
 
 exports.string = function (limit) {
