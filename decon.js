@@ -90,9 +90,11 @@ function Context(buffer, symbols) {
     return buffer.length;
   }
 
-  this.evaluate = function (v, that) {
+  this.evaluate = function (v, that, dereference) {
     var scope = {position: this.bitten};
     each(this.scope, function (s) { each(s,function(v,k){scope[k] = v;}); });
+    if (dereference && typeof v == typeof '' && !isnull(scope[v]))
+      v = scope[v];
     while (typeof v == 'function')
       v = v.call(that, scope);
     return v;
@@ -161,7 +163,6 @@ function Type() {
   // Construction
 
   this.array = function (limit) {
-    if (typeof limit == typeof 1)  limit = {length: limit};
     return new ArrayType(this, limit);
   };
 
@@ -270,19 +271,17 @@ function ReferenceType(name) {
 
 
 
-function ArrayType(element, optLen) {
+function ArrayType(element, limit) {
 
-  if (!isnull(optLen)) {
-    if (typeof optLen == typeof 1) {
-      this.length = optLen;
-    } else {
-      var that = this;
-      each(optLen, function (v,k) { that[k] = v; });
-    }
-  }
+  if (isnull(limit))
+    limit = {};
+  else if (typeof limit == typeof 1)  
+    limit = {length: limit};
+  else if (typeof limit == typeof '')
+    limit = {length: limit};
 
   this.toString = function (context) {
-    return ("" + element.toString(context) + "[" + this.length + "]");
+    return '' + element.toString(context) + "[...]";
   };
 
   function equals(terminator, value, context) {
@@ -297,15 +296,15 @@ function ArrayType(element, optLen) {
 
   this.deconstruct = function (context) {
     context.result = null;
-    if (this.index)
+    if (limit.index)
       context.scope.unshift({});
     var isstr = element.isAscii(context);
     var result = isstr ? "" : [];
     for (var i = 0; ; ++i) {
-      if (this.index)
-        context.scope[0][this.index] = i;
-      if (!isnull(this.length)) {
-        var count = context.evaluate(this.length);
+      if (limit.index)
+        context.scope[0][limit.index] = i;
+      if (!isnull(limit.length)) {
+        var count = context.evaluate(limit.length, context.result, true);
         if (typeof count != typeof 1)
           throw new DeconError("Invalid array length: " + 
                                inspect(count), context);
@@ -316,17 +315,17 @@ function ArrayType(element, optLen) {
       }
       if (context.eof())
         break;
-      if (equals(this.before, context.peek(), context)) break;
+      if (equals(limit.before, context.peek(), context)) break;
       var v = element.deconstruct(context);
-      if (equals(this.until, context.result, context)) break;
+      if (equals(limit.until, context.result, context)) break;
       if (isstr)
         result += v;
       else
         result.push(v);
-      if (equals(this.through, context.result, context)) break;
+      if (equals(limit.through, context.result, context)) break;
     }
     context.result = result;
-    if (this.index)
+    if (limit.index)
       context.scope.shift();
     return context.result;
   }
@@ -368,7 +367,6 @@ function AtomicType(basis) {
     var result = (signed(context) ? "i" : "u") + size(context);
     if (bigendian(context)) result = result.toUpperCase();
     switch (base(context)) {
-    case 0:   result += "n";  break;
     case 0.5: result += "f";  break;
     case 2:   result += "b";  break;
     case 256: result += "c";  break;
@@ -435,8 +433,6 @@ function AtomicType(basis) {
       context.result = String.fromCharCode(context.result);
     else if (base(context) === 2) 
       context.result = !!context.result;
-    else if (base(context) === 0)
-      context.result = null;
     return context.result;
   };
 }
