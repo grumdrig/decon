@@ -493,6 +493,7 @@ function equal(a, b) {
   
   return true;
 }
+exports.equal = equal;
 
 
 function ModifiedType(key, value, underlying) {
@@ -884,5 +885,6 @@ exports.insert = function (value) {
   return new InsertionType(value);
 };
 
+exports.TYPES = TYPES;
 for (var t in TYPES) if (TYPES.hasOwnProperty(t)) exports[t] = TYPES[t];
 

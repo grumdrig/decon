@@ -57,6 +57,10 @@ function TokenMatcher(input) {
 
   this.group = function (n) { return this.match && this.match[n || 0]; }
   
+  this.text = function () {
+    return this.group(this.type());
+  };
+
   this.type = function () { 
     for (var i = 3; i < this.match.length; ++i) if (this.group(i)) return i;
   };
@@ -90,7 +94,6 @@ var T = exports.T = [
 for (var i = 0; i < T.length; ++i)
   exports[T[i]] = T[T[i]] = i;
 
-console.dir(T.IDENTIFIER);
 
 exports.lex = function (buffer) {
   var result = [];
@@ -104,7 +107,7 @@ exports.lex = function (buffer) {
       throw new Error("Tokenizer error at " + matcher.pos + ": " + inspect(matcher.input.substr(matcher.pos, 20)));
     }
     result.push({
-      text: matcher.group(2),
+      text: matcher.text(),
       type: matcher.type(),
       pos: p,
       line: line,
@@ -116,18 +119,25 @@ exports.lex = function (buffer) {
     }
     if (matcher.group(T.EOF)) break;
   }
+  result.push({ text: '', type: T.EOF, pos: matcher.pos,
+                line: linepos, col: matcher.pos - linepos });
   return result;
 }
 
 function main() {
   var args = process.argv.slice(2);
-  filename = args[0];
-  console.dir(exports.lex(require("fs").readFileSync(filename, 'utf8')));
+  var s = args[0];
+  if (s === "-f") s = require("fs").readFileSync(args[1], 'utf8');
+  var stream = exports.lex(s);
+  for (var i = 0; i < stream.length; ++i)
+    stream[i].type = T[stream[i].type];
+  console.dir(stream);
   //console.dir(exports.lex(args[0]));
 }
   
 
 function testMatch(input, expected) {
+  expected.push(T.EOF);
   var stream = exports.lex(input);
   function err(msg) {
     throw new Error("TEST FAILED matching " + input + " to " + 
