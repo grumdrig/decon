@@ -98,7 +98,8 @@ function DeconParser(text) {
   function advance() { ++pos; }
 
   this.lineno = function () { 
-    return (pos < stream.length) ? stream[pos].line : "EOF"; 
+    return (pos < stream.length) ? (stream[pos].line + "," + stream[pos].col) :
+                                   "EOF"; 
   }
 
   this.errorContext = function () {
@@ -185,14 +186,8 @@ function DeconParser(text) {
     
   };
 
-  var MODIFIERS = ["size", "at", "select", "check", "if", "load", 
-                   "deconstruct"];
-  var UNARYMODS = {
-    unsigned: ["signed", false],
-    signed: ["signed", true],
-    bigendian: ["bigendian", true],
-    littleendian: ["bigendian", false]
-  };
+  var MODIFIERS = ["size", "at", "select", "check", "if","load","reconstruct"];
+  var UNARYMODS = ["unsigned", "signed", "bigendian", "littleendian"];
 
   var parseType = this.parseType = function() {
     var type = tryToParseType();
@@ -205,9 +200,9 @@ function DeconParser(text) {
       var m = take(T.IDENTIFIER);
       var v = parseValue();
       return parseType()[m](v);
-    } else if (!isnull(UNARYMODS[is(T.IDENTIFIER)])) {
-      var m = UNARYMODS[take(T.IDENTIFIER)];
-      return parseType()[m[0]](makeValue(m[1]));
+    } else if (UNARYMODS.indexOf(is(T.IDENTIFIER)) >= 0) {
+      var m = take(T.IDENTIFIER);
+      return parseType()[m]();
     } else if (tryToTake("cast")) {
       take("(");
       var to = parseType();
@@ -281,17 +276,15 @@ function DeconParser(text) {
       if (tryToTake(".")) {
         if (MODIFIERS.indexOf(is(T.IDENTIFIER)) >= 0) {
           result = result[take(T.IDENTIFIER)](parseValue());
+        } else if (UNARYMODS.indexOf(is(T.IDENTIFIER)) >= 0) {
+          result = result[take(T.IDENTIFIER)]();
         } else if (tryToTake("cast")) {
           take("(");
           var to = parseType();
           take(")");
           result = result.cast(to);
         } else {
-          var mname = take(T.IDENTIFIER);
-          var m = UNARYMODS[mname];
-          if (isnull(m))
-            throw new SyntaxError("Invalid type modifier: " + mname);
-          result = result[m[0]](makeValue(m[1]));
+          throw new SyntaxError("Invalid type modifier: " + take());
         }
       } else if (tryToTake("[")) {
         var limit = {};
@@ -377,7 +370,7 @@ function DeconParser(text) {
       var mapValue = function (ctx) {
         var result = {};
         for (var i = 0; i < keys.length; ++i)
-          result[keys[i].value(context)] = values[i].value(context);
+          result[ctx.evaluate(keys[i])] = ctx.evaluate(values[i]);
         return result;
       }
       //mapValue.type = "TODO?";
@@ -657,6 +650,7 @@ var parse = exports.parse = function (string, what) {
 };
 
 
+/*
 function LiteralValue(value, type) {
   this.value = function (context) {
     return value;
@@ -743,7 +737,7 @@ function ArrayValue(values) {
     return result + "]";
   }
 }
-
+*/
 
 function expressionValue(left, operator, right) {
   if (operator === ".") {
@@ -758,7 +752,7 @@ function expressionValue(left, operator, right) {
       var args = [];
       for (var i = 0; i < right.length; ++i)
         args[i] = ctx.evaluate(right[i]);
-      return ctx.evaluate(left).apply(ctx.result, args);
+      return left.apply(ctx.result, args);
     };
   } else {
     // Arithmetic
@@ -794,6 +788,12 @@ function modref(attr, val, ref) {
 
 var TYPES = decon.TYPES;
 
+var GLOBALS = decon.GLOBALS;
+var CONSTANTS = decon.GLOBALS;
+GLOBALS.null = makeValue(null);
+GLOBALS.false = makeValue(false);
+GLOBALS.true = makeValue(true);
+/*
 var CONSTANTS = {
   null:  makeValue(null),
   false: makeValue(false),
@@ -802,6 +802,7 @@ var CONSTANTS = {
 
 var GLOBALS = {
 };
+*/
 
 if (require.main === module)
   main();

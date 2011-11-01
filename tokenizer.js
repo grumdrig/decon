@@ -32,7 +32,7 @@ function TokenMatcher(input) {
                        +"([ \t]*(?:#.*)?)"         // + spaces/comments before
                        +"("                        // + any token: (
                        +  "([\\r\\n;])"            // +   \n
-                       +  "|<script>(.*?)</script>"// +   <script> escape
+                           +  "|<script>((?:x|[^x])*?)</script>"// +   <script> escape
                        +  '|"((?:[^"\\\\]|\\\\.)*)"'//+   quoted
                        +  "|'((?:[^'\\\\]|\\\\.)*)'"//+   single-quoted
                        +  "|([_a-zA-Z]\\w*)"       // +   identifier
@@ -113,7 +113,7 @@ exports.lex = function (buffer) {
       line: line,
       col: p - linepos
     });
-    if (matcher.group(T.NEWLINE)) {
+    if (matcher.group(T.NEWLINE) && matcher.group(T.NEWLINE) != ";") {
       line++;
       linepos = matcher.pos;
     }
@@ -173,6 +173,7 @@ function runTests() {
   testMatch(" $$", [ T.ILLEGAL, T.ILLEGAL ]);
   testMatch("{key:value}", [T.PUNCTUATION, T.IDENTIFIER, T.OPERATOR, 
                             T.IDENTIFIER, T.PUNCTUATION]);
+  testMatch("<script>\nfunction x(a,b) { return a+b; }\n</script>",[T.SCRIPT]);
   
   return true;
 }

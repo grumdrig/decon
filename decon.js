@@ -18,6 +18,7 @@ function DeconError(problem, context) {
   err.message = '';
   Error.captureStackTrace(err, arguments.callee);
   this.stack = err.stack;
+  this.constack = context.stack.join(":")
 
   this.complain = function () {
     if (isnull(this.context)) {
@@ -29,7 +30,7 @@ function DeconError(problem, context) {
     console.error("DECON ERROR (@" + this.context.bitten + "): " +
                   this.problem);
     console.error(this.context.xxd());
-    console.error(this.context.stack);
+    console.error(this.constack);
     console.error(this.context.scope);
     console.error(this.stack);
     process.exit(-2);
@@ -92,11 +93,12 @@ function Context(buffer, symbols) {
   }
 
   this.evaluate = function (v, that, dereference) {
-    var scope = {position: this.bitten};
+    var scope = {position: this.bitten, this:that};
+    each(that, function(v,k) { scope[k] = v; } );
     each(this.scope, function (s) { each(s,function(v,k){scope[k] = v;}); });
     scope.evaluate = function (v) {
-      if (typeof v == typeof "" && !isnull(scope[v]))
-        return scope[v];
+      //if (typeof v == typeof "" && !isnull(scope[v]))
+      //  return scope[v];
       while (typeof v == 'function')
         v = v.call(that, scope);
       return v;
@@ -260,11 +262,14 @@ function ReferenceType(name) {
 
   this.deconstruct = function(context) {
     var t = TYPES[name];
-    context.stack.unshift(name);
     if (isnull(t))
       throw new DeconError("Undefined type " + name, context);
-    var result = t.deconstruct(context);
-    context.stack.shift();
+    context.stack.unshift(name);
+    try {
+      var result = t.deconstruct(context);
+    } finally {
+      context.stack.shift();
+    }
     return result;
   };
 
@@ -715,8 +720,11 @@ function StructType(union) {
         var unbitten = context.bitten;
         var field = fields[i];
         context.stack.unshift(field.name);
-        var value = field.type.deconstruct(context);
-        context.stack.shift();
+        try {
+          var value = field.type.deconstruct(context);
+        } finally {
+          context.stack.shift();
+        }
         if (union && (typeof value != 'undefined')) {
           result = value;
           break;
@@ -838,7 +846,7 @@ var TYPES = {
 }
 
 
-var GLOBALS = {
+var GLOBALS = exports.GLOBALS = {
 };
 
 

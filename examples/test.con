@@ -63,11 +63,11 @@ Test2: {
 Test3: {
   char[before 'L']
   "LMNOP"
-  Q: char
+  q: char
   totee: TString "RST"
-}.check(Q = "Q")
-terminator = 'T' as char
-TString: char[through terminator]
+}.check(q = "Q")
+#terminator = 'T' as char
+TString: char[through "T"]
 
 
 Test4: {
@@ -191,7 +191,7 @@ Test16: {
 
 Test17: {
   filename: null.select(filename)
-  another: OtherType.deconstruct("ZYXWandetc")
+  another: OtherType.reconstruct("ZYXWandetc")
   other: OtherFile.load(filename)
 }
 OtherType: { 
@@ -247,11 +247,11 @@ Test21: union {
 
 
 Test22: {
-  le32: float32.littleendian.deconstruct([0,0,0x80,0x3f]) 1 
-  le32a: float32.littleendian.deconstruct("\x00\x00\x80\x3f") 1
-  be32: float32.bigendian.deconstruct([0x3f,0x80,0,0]) 1
-  le64: float64.littleendian.deconstruct("\x55\x55\x55\x55\x55\x55\xd5\x3f") 0.33333333333333333
-  be64: float64.bigendian.deconstruct([0x3f,0xd5,0x55,0x55,0x55,0x55,0x55,0x55]) 0.333333333333333333333
+  le32: float32.littleendian.reconstruct([0,0,0x80,0x3f]) 1 
+  le32a: float32.littleendian.reconstruct("\x00\x00\x80\x3f") 1
+  be32: float32.bigendian.reconstruct([0x3f,0x80,0,0]) 1
+  le64: float64.littleendian.reconstruct("\x55\x55\x55\x55\x55\x55\xd5\x3f") 0.33333333333333333
+  be64: float64.bigendian.reconstruct([0x3f,0xd5,0x55,0x55,0x55,0x55,0x55,0x55]) 0.333333333333333333333
 }
 
 
