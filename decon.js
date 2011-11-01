@@ -62,6 +62,7 @@ function each(obj, callback) {
 }
 
 
+exports.Context = Context;
 function Context(buffer, symbols) {
   this.bitten = 0;
   this.result = null;
@@ -93,11 +94,15 @@ function Context(buffer, symbols) {
   this.evaluate = function (v, that, dereference) {
     var scope = {position: this.bitten};
     each(this.scope, function (s) { each(s,function(v,k){scope[k] = v;}); });
-    if (dereference && typeof v == typeof '' && !isnull(scope[v]))
-      v = scope[v];
-    while (typeof v == 'function')
-      v = v.call(that, scope);
-    return v;
+    scope.evaluate = function (v) {
+      if (typeof v == typeof "" && !isnull(scope[v]))
+        return scope[v];
+      while (typeof v == 'function')
+        v = v.call(that, scope);
+      return v;
+    };
+    scope.eval = scope.evaluate;
+    return scope.evaluate(v);
   }
 
   this.xxd = function () {
@@ -739,12 +744,17 @@ function EqualsType(underlying, value) {
   };
 
   this.deconstruct = function (context) {
-    var result = underlying.deconstruct(context);
-    if (!equal(context.evaluate(value, result), result)){
-      throw new DeconError("Non-matching value. Expected: " + 
-                           inspect(context.evaluate(value, result)) + 
-                           ", got:" +  inspect(result), context);
+    if (isnull(underlying)) {
+      var v = context.evaluate(value);
+      var result = typeForValue(value).deconstruct(context);
+    } else {
+      var result = underlying.deconstruct(context);
+      var v = context.evaluate(value, result);
     }
+    if (!equal(v, result))
+      throw new DeconError("Non-matching value. Expected: " + 
+                           inspect(v) + 
+                           ", got:" +  inspect(result), context);
     return result;
   }
 }
@@ -796,6 +806,7 @@ function typeForValue(v) {
     throw new DeconError("can't determine type from value");
   }
 }
+exports.typeForValue = typeForValue;
 
 
 function modref(attr, val, ref) {
@@ -852,8 +863,8 @@ exports.union = function (fields) {
   return result;
 };
 
-exports.literal = function (value) {
-  return new EqualsType(typeForValue(value), value);
+exports.literal = function (value, type) {
+  return new EqualsType(type || typeForValue(value), value);
 };
 
 exports.load = function (filename, type) {

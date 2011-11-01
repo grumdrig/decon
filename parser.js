@@ -36,9 +36,9 @@ function testParseValue(input, expected) {
   }
   */
 
-  var context = { modifiers: {}, defaults: {}, scope: [] };
-  if (!decon.equal(d.value(context), expected)) {
-    console.error("FAILED TEST: Unexpected value " + d.toString(context) + 
+  var ctx = new decon.Context();
+  if (!decon.equal(ctx.evaluate(d), expected)) {
+    console.error("FAILED TEST: Unexpected value " +// d.toString(context) + 
                   " expected " + 
                   inspect(expected) + " for " + inspect(input));
     process.exit(-9);
@@ -130,7 +130,7 @@ function DeconParser(text) {
       return take();
     } else {
       if (stream[pos].type !== something)
-        throw new SyntaxError("Expected " + T[tokenType]);
+        throw new SyntaxError("Expected " + T[something]);
       var result = token();
       advance();
       return result;
@@ -182,6 +182,7 @@ function DeconParser(text) {
       
       if (!is(T.EOF)) takeNewlines();
     }
+    
   };
 
   var MODIFIERS = ["size", "at", "select", "check", "if", "load", 
@@ -201,7 +202,9 @@ function DeconParser(text) {
 
   function tryToParseType() {
     if (MODIFIERS.indexOf(is(T.IDENTIFIER)) >= 0) {
-      return parseType()[T.IDENTIFIER](parseValue());
+      var m = take(T.IDENTIFIER);
+      var v = parseValue();
+      return parseType()[m](v);
     } else if (!isnull(UNARYMODS[is(T.IDENTIFIER)])) {
       var m = UNARYMODS[take(T.IDENTIFIER)];
       return parseType()[m[0]](makeValue(m[1]));
@@ -209,7 +212,7 @@ function DeconParser(text) {
       take("(");
       var to = parseType();
       take(")");
-      return parseType().cast(new LiteralValue(null, to));
+      return parseType().cast(to);
     } 
 
     if (tryToTake("union")) {
@@ -218,22 +221,25 @@ function DeconParser(text) {
       var union = [];
       for (maybeTakeNewlines(); !tryToTake("}"); ) {
         var type = tryToParseType();
-        if (isnull(fieldtype)) {
+        if (isnull(type)) {
           var value = tryToParseValue();
-          if (isnull(fieldvalue)) 
+          if (isnull(value)) 
             throw new SyntaxError("Type (or value) expected");
-          type = value.type().equals(value);
+          type = decon.literal(value, value.type);
         }
         union.push(type);
         if (tryToTake("}")) break;  // Allow closing brace w/o newline
         takeNewlines();
       }
       var result = decon.union(union);
+
     } else if (tryToTake("{")) {
       // Struct
       var struct = {};
+      var f = 0;
       for (maybeTakeNewlines(); !tryToTake("}"); ) {
-        var fieldnames = [null];
+        f++;
+        var fieldnames = ["____" + f];
         if (is(T.IDENTIFIER)) {
           var mark = pos;
           var fieldnames = [take(T.IDENTIFIER)];
@@ -241,7 +247,7 @@ function DeconParser(text) {
             fieldnames.push(take(T.IDENTIFIER));
           if (!tryToTake(":")) {
             pos = mark;
-            fieldnames = [null];
+            fieldnames = ["____" + f];
           }
         }
 
@@ -250,7 +256,7 @@ function DeconParser(text) {
           var fieldvalue = tryToParseValue(true);
           if (isnull(fieldvalue)) 
             throw new SyntaxError("Field type (or value) expected");
-          fieldtype = fieldvalue.type().equals(value);
+          fieldtype = decon.literal(fieldvalue, fieldvalue.type);
         }
 
         fieldnames.each(function (i,fieldname) {
@@ -262,9 +268,11 @@ function DeconParser(text) {
         takeNewlines();
       }
       var result = decon.struct(struct);
+
     } else if (is(T.IDENTIFIER)) {
       // Reference named type
       var result = decon.ref(take(T.IDENTIFIER));
+
     } else {
       return;
     }
@@ -277,7 +285,7 @@ function DeconParser(text) {
           take("(");
           var to = parseType();
           take(")");
-          result = result.cast(new LiteralValue(null, to));
+          result = result.cast(to);
         } else {
           var mname = take(T.IDENTIFIER);
           var m = UNARYMODS[mname];
@@ -336,8 +344,8 @@ function DeconParser(text) {
 
     } else if (is(T.HEXNUMBER)) {
       var hex = take(T.HEXNUMBER);
-      return new LiteralValue(parseInt(hex, 16), 
-                           decon.ref("byte").size(makeValue(4 * hex.length)));
+      return makeValue(parseInt(hex, 16), 
+                       decon.ref("byte").size(makeValue(4 * hex.length)));
                                                
 
     } else if (is(T.SINGLEQUOTED)) {
@@ -346,13 +354,12 @@ function DeconParser(text) {
       var value = 0;
       for (var i = 0; i < s.length; ++i)
         value = (value << 8) + (0xFF & s.charCodeAt(i));
-      return new LiteralValue(value, 
-                              decon.ref("byte").size(makeValue(8 * s.length)));
+      return makeValue(value, decon.ref("byte").size(makeValue(8 * s.length)));
                                                      
 
     } else if (is(T.QUOTED)) {
       var value = evalString(take(T.QUOTED));
-      return new LiteralValue(value, decon.ref("char").array({length:
+      return makeValue(value, decon.ref("char").array({length:
                                                     makeValue(value.length)}));
 
     } else if (tryToTake("{")) {
@@ -367,7 +374,14 @@ function DeconParser(text) {
         maybeTakeNewlines();
         if (tryToTake("}")) break;
       }
-      return new MapValue(keys, values);
+      var mapValue = function (ctx) {
+        var result = {};
+        for (var i = 0; i < keys.length; ++i)
+          result[keys[i].value(context)] = values[i].value(context);
+        return result;
+      }
+      //mapValue.type = "TODO?";
+      return mapValue;
 
     } else if (tryToTake("[")) {
       var values = [];
@@ -375,10 +389,20 @@ function DeconParser(text) {
         values.push(parseExpression());
         if (tryToTake("]")) break;
       }
-      return new ArrayValue(values);
+      var result = function (ctx) {
+        var result = [];
+        for (var i = 0; i < values.length; ++i)
+          result.push(ctx.evaluate(values[i]));
+        return result;
+      };
+      //result.type = something?
+      return result;
 
     } else if (!infield && is(T.IDENTIFIER)) {
-      return new ReferenceValue(take(T.IDENTIFIER));
+      var id = take(T.IDENTIFIER);
+      var result = function (s) { return s[id]; };
+      // result.type = something?
+      return result;
 
     } else if (tryToTake("(")) {
       var result = parseExpression();
@@ -424,7 +448,7 @@ function DeconParser(text) {
       } else {
         var rhs = parseValue();
       }
-      result = new ExpressionValue(result, operator, rhs);
+      result = expressionValue(result, operator, rhs);
     }
 
     if (tryToTake("as"))
@@ -509,7 +533,7 @@ function main() {
     console.error("MAIN:");
     console.error(Main.toString(new Context()));
   }
-  
+
   var tree = Main.parseFile(infile, partialok);
 
   while (submains.length > 0)
@@ -721,81 +745,45 @@ function ArrayValue(values) {
 }
 
 
-function ExpressionValue(left, operator, right) {
-  this.value = function (context) {
-    var result = left.value(context);
-    if (operator === ".") {
-      // Field access
-      context.scope.unshift(result);
-      result = right.value(context);
-      context.scope.shift();
-    } else if (operator === "[") {
-      // Index
-      var index = right.value(context);
-      result = result[index];
-    } else if (operator === "(") {
-      // Function call
+function expressionValue(left, operator, right) {
+  if (operator === ".") {
+    // Field access
+    return function (ctx) { return ctx.evaluate(left)[right]; };
+  } else if (operator === "[") {
+    // Index
+    return function (ctx) { return ctx.evaluate(left)[ctx.evaluate(right)]; };
+  } else if (operator === "(") {
+    // Function call
+    return function (ctx) {
       var args = [];
       for (var i = 0; i < right.length; ++i)
-        args[i] = right[i].value(context);
-      result = result.apply(context.result, args);
-    } else {
-      // Arithmetic
-      var rvalue = right.value(context);
-      // TODO: auto type conversion?
-      switch (operator) {
-      case "+":  result += rvalue;  break;
-      case "-":  result -= rvalue;  break;
-      case "*":  result *= rvalue;  break;
-      case "/":  result /= rvalue;  break;
-      case "&":  result &= rvalue;  break;
-      case "|":  result |= rvalue;  break;
-      case "=":  result = equal(result, rvalue);  break;
-      case ">":  result = (result > rvalue);  break;
-      case "<":  result = (result < rvalue);  break;
-      case "<<": result <<= rvalue;  break;
-      case ">>": result >>= rvalue;  break;
-      default: throw new DeconError("Internal Error: unknown operator " + 
-                                    operator, context);
-      }
+        args[i] = ctx.evaluate(right[i]);
+      return ctx.evaluate(left).apply(ctx.result, args);
+    };
+  } else {
+    // Arithmetic
+    switch (operator) {
+    case "+":  return function (s) { return s.eval(left) + s.eval(right); };
+    case "-":  return function (s) { return s.eval(left) - s.eval(right); };
+    case "*":  return function (s) { return s.eval(left) * s.eval(right); };
+    case "/":  return function (s) { return s.eval(left) / s.eval(right); };
+    case "&":  return function (s) { return s.eval(left) & s.eval(right); };
+    case "|":  return function (s) { return s.eval(left) | s.eval(right); };
+    case "=":  return function (s) { return s.eval(left) === s.eval(right); };
+    case ">":  return function (s) { return s.eval(left) > s.eval(right); };
+    case "<":  return function (s) { return s.eval(left) < s.eval(right); };
+    case ">>": return function (s) { return s.eval(left) >> s.eval(right); };
+    case "<<": return function (s) { return s.eval(left) << s.eval(right); };
+    default: throw new Error("Internal Error: unknown operator " + operator);
     }
-    return result;
-  }
-
-  this.type = function (context) {
-    return decon.ref("null");  // frankly, this would be a mess.
-  }
-
-  this.toString = function (context) {
-    if (operator === "[")
-      return left.toString(context) + "[" + right.toString(context) + "]";
-    else if (operator === "(")
-      return left.toString(context) + "(...)";// + right.toString(context) + ")";
-    else
-      return "(" + left.toString(context) + " " + operator + " " + 
-                  right.toString(context) + ")";
   }
 }
 
 
-function makeValue(value) {
-  if (isnull(value))
-    return new LiteralValue(value, decon.ref("null"));
-  else if (typeof value == typeof true)
-    return new LiteralValue(value, decon.ref("bool"));
-  else if (typeof value == typeof 1) {
-    if (value < 0x80)
-      return new LiteralValue(value, decon.ref("int8"));
-    else if (value < 0x8000)
-      return new LiteralValue(value, decon.ref("int16"));
-    else if (value < 0x80000000)
-      return new LiteralValue(value, decon.ref("int32"));
-    else 
-      return new LiteralValue(value, decon.ref("int64"));
-  } else  {
-    //throw new Error("Internal Error: Invalid parameter to makeValue: " + typeof value);
-    return new LiteralValue(value, decon.ref("object"));
-  }
+function makeValue(value, optType) {
+  var result = function () { return value; };
+  result.type = optType || decon.typeForValue(value);
+  return result;
 }
 
 
